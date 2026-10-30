@@ -1,0 +1,41 @@
+# UGREEN NAS (x86_64): copy the AnimeRoll-Home folder + .env to the NAS, then
+#   docker compose up -d --build
+# Paths come from .env (defaults below). PUID/PGID = the NAS user that owns the files (`id` on the NAS).
+services:
+  animeroll:
+    build:
+      context: ..
+      dockerfile: AnimeRoll.Server/Dockerfile
+      platforms: ["linux/amd64"]
+    image: animeroll-server:latest
+    container_name: animeroll
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    ports:
+      - "8080:8080"
+    env_file: .env
+    volumes:
+      - ${ANIMEROLL_DATA:-/volume1/docker/animeroll/data}:/data
+      - ${ANIMEROLL_MEDIA:-/volume1/docker/animeroll/media}:/media
+      - ${ANIMEROLL_DOWNLOADS:-/volume1/docker/animeroll/downloads}:/downloads
+      - ${ANIMEROLL_TOOLS:-/volume1/docker/animeroll/tools}:/tools   # your Crunchyroll downloader goes here
+    depends_on:
+      - qbittorrent
+
+  # Used only by the Torrent source. Web UI on :8081.
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: animeroll-qbittorrent
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=Europe/Rome
+      - WEBUI_PORT=8081
+    ports:
+      - "8081:8081"
+      - "6881:6881"
+      - "6881:6881/udp"
+    volumes:
+      - ${ANIMEROLL_QBT:-/volume1/docker/animeroll/qbittorrent}:/config
+      - ${ANIMEROLL_DOWNLOADS:-/volume1/docker/animeroll/downloads}:/downloads   # same path as in animeroll

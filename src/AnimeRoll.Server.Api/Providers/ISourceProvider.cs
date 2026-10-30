@@ -1,0 +1,80 @@
+using AnimeRoll.Server.Api.Data;
+
+namespace AnimeRoll.Server.Api.Providers;
+
+public sealed record SourceSearchResult(
+    string Ref, string Title, string? PosterUrl = null, string? Subtitle = null,
+    int? AniListId = null, Dictionary<string, string>? Extra = null);
+
+public sealed record SourceEpisode(string Ref, double? Number, string Title, Dictionary<string, string>? Extra = null);
+
+public sealed record ProviderInfo(string Id, string Name, bool Enabled, bool CanSearch, bool CanListEpisodes, bool CanStream, string? Hint);
+
+/// What a provider gets to run one download job.
+public sealed class DownloadContext(DownloadJob job, string workDir, Func<double, string?, Task> report)
+{
+    public DownloadJob Job { get; } = job;
+    /// Empty temp folder for this job; files left here are imported afterwards.
+    public string WorkDir { get; } = workDir;
+    public Task ReportAsync(double progress01, string? message = null) => report(progress01, message);
+}
+
+/// A place anime can come from. Every provider can download to the NAS;
+/// search, episode lists and direct streaming are optional.
+public interface ISourceProvider
+{
+    string Id { get; }
+    string Name { get; }
+    bool Enabled { get; }
+    bool CanSearch => true;
+    bool CanListEpisodes => true;
+    bool CanStream => false;
+    string? Hint => null;
+
+    Task<IReadOnlyList<SourceSearchResult>> SearchAsync(string query, CancellationToken ct);
+    Task<IReadOnlyList<SourceEpisode>> EpisodesAsync(string seriesRef, CancellationToken ct);
+
+    /// Direct playable URL without downloading (only if CanStream).
+    Task<string?> ResolveStreamUrlAsync(string episodeRef, CancellationToken ct) => Task.FromResult<string?>(null);
+
+    /// Downloads into ctx.WorkDir and returns the produced video files.
+    Task<IReadOnlyList<string>> DownloadAsync(DownloadContext ctx, CancellationToken ct);
+
+    ProviderInfo Info => new(Id, Name, Enabled, CanSearch, CanListEpisodes, CanStream, Hint);
+}
+
+public sealed class ProviderRegistry(IEnumerable<ISourceProvider> providers)
+{
+    private readonly Dictionary<string, ISourceProvider> _map = providers.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
+    public IEnumerable<ISourceProvider> All => _map.Values;
+    public ISourceProvider? Get(string id) => _map.GetValueOrDefault(id);
+}
+
+public static class HttpDownload
+{
+    public static async Task<string> ToFileAsync(HttpClient http, string url, string path, DownloadContext ctx, CancellationToken ct,
+        string? referer = null)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        if (referer != null) req.Headers.Referrer = new Uri(referer);
+        using var res = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        res.EnsureSuccessStatusCode();
+        var total = res.Content.Headers.ContentLength ?? 0;
+        await using var input = await res.Content.ReadAsStreamAsync(ct);
+        await using var output = File.Create(path);
+        var buffer = new byte[1 << 16];
+        long done = 0; var lastReport = DateTime.MinValue;
+        int read;
+        while ((read = await input.ReadAsync(buffer, ct)) > 0)
+        {
+            await output.WriteAsync(buffer.AsMemory(0, read), ct);
+            done += read;
+            if (total > 0 && DateTime.UtcNow - lastReport > TimeSpan.FromSeconds(1))
+            {
+                lastReport = DateTime.UtcNow;
+                await ctx.ReportAsync((double)done / total, $"{done / 1048576} / {total / 1048576} MB");
+            }
+        }
+        return path;
+    }
+}
