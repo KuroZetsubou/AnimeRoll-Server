@@ -5,6 +5,7 @@ using AnimeRoll.Server.Api.Data;
 using AnimeRoll.Server.Api.Downloads;
 using AnimeRoll.Server.Api.Library;
 using AnimeRoll.Server.Api.Options;
+using AnimeRoll.Server.Api.Plugins;
 using AnimeRoll.Server.Api.Providers;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http.Features;
@@ -50,8 +51,8 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddFido2(o =>
 {
-    o.ServerDomain = cfg.Passkey.ServerDomain;
-    o.ServerName = cfg.Passkey.ServerName;
+    o.RPID = cfg.Passkey.ServerDomain;
+    o.RPName = cfg.Passkey.ServerName;
     o.Origins = cfg.Passkey.Origins.ToHashSet();
 });
 
@@ -67,14 +68,14 @@ builder.Services.AddHttpClient<StreamSiteProvider>(c =>
 });
 builder.Services.AddHttpClient<TorrentProvider>(c => c.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUa));
 builder.Services.AddHttpClient<QBittorrentClient>();
+builder.Services.AddHttpClient("plugins", c => { c.Timeout = Timeout.InfiniteTimeSpan; c.DefaultRequestHeaders.UserAgent.ParseAdd("AnimeRoll-Plugin/1.0"); });
 builder.Services.AddSingleton<TelegramService>();
 builder.Services.AddSingleton<TelegramProvider>();
-builder.Services.AddSingleton<CrunchyrollProvider>();
+builder.Services.AddSingleton<PluginHost>();
 
 builder.Services.AddTransient<ISourceProvider>(sp => sp.GetRequiredService<StreamSiteProvider>());
 builder.Services.AddTransient<ISourceProvider>(sp => sp.GetRequiredService<TorrentProvider>());
 builder.Services.AddTransient<ISourceProvider>(sp => sp.GetRequiredService<TelegramProvider>());
-builder.Services.AddTransient<ISourceProvider>(sp => sp.GetRequiredService<CrunchyrollProvider>());
 builder.Services.AddTransient<ProviderRegistry>();
 
 builder.Services.AddScoped<MediaPipeline>();
@@ -88,6 +89,7 @@ var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
     scope.ServiceProvider.GetRequiredService<AppDb>().Database.EnsureCreated();
+await app.Services.GetRequiredService<PluginHost>().LoadAsync(CancellationToken.None);
 
 app.UseCors();
 app.UseAuthentication();
@@ -115,6 +117,7 @@ app.MapAniList();
 app.MapLibrary();
 app.MapMedia();
 app.MapSourcesAndDownloads();
+app.MapPlugins();
 
 // Web client (AnimeRoll.Client/Web build) is copied to wwwroot in the Docker image.
 app.UseDefaultFiles();

@@ -8,7 +8,8 @@ public sealed record SourceSearchResult(
 
 public sealed record SourceEpisode(string Ref, double? Number, string Title, Dictionary<string, string>? Extra = null);
 
-public sealed record ProviderInfo(string Id, string Name, bool Enabled, bool CanSearch, bool CanListEpisodes, bool CanStream, string? Hint);
+public sealed record ProviderInfo(string Id, string Name, bool Enabled, bool CanSearch, bool CanListEpisodes, bool CanStream, string? Hint,
+    string? RefPattern = null, bool IsPlugin = false);
 
 /// What a provider gets to run one download job.
 public sealed class DownloadContext(DownloadJob job, string workDir, Func<double, string?, Task> report)
@@ -43,9 +44,11 @@ public interface ISourceProvider
     ProviderInfo Info => new(Id, Name, Enabled, CanSearch, CanListEpisodes, CanStream, Hint);
 }
 
-public sealed class ProviderRegistry(IEnumerable<ISourceProvider> providers)
+/// Built-in sources + every loaded plugin.
+public sealed class ProviderRegistry(IEnumerable<ISourceProvider> providers, AnimeRoll.Server.Api.Plugins.PluginHost plugins)
 {
-    private readonly Dictionary<string, ISourceProvider> _map = providers.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ISourceProvider> _map = providers.Concat(plugins.Providers)
+        .GroupBy(p => p.Id, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
     public IEnumerable<ISourceProvider> All => _map.Values;
     public ISourceProvider? Get(string id) => _map.GetValueOrDefault(id);
 }

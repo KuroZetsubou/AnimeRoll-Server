@@ -1,0 +1,12 @@
+{
+  // Script plugin: any language, see PLUGINS.md
+  "type": "script",
+  "id": "direct-url",
+  "name": "Link diretto",
+  "version": "1.0.0",
+  "command": ["python3", "main.py"],
+  "capabilities": ["download"],
+  "refPattern": "^https?://",
+  "hint": "Incolla un link diretto a un file video (plugin d'esempio).",
+  "settings": {}
+}

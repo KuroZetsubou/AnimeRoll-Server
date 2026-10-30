@@ -14,4 +14,8 @@
     <PackageReference Include="WTelegramClient" Version="4.4.9" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\AnimeRoll.Plugins.Abstractions\AnimeRoll.Plugins.Abstractions.csproj" />
+  </ItemGroup>
+
 </Project>

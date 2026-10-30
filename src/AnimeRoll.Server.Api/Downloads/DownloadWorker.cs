@@ -66,17 +66,26 @@ public sealed class DownloadWorker(DownloadQueue queue, IServiceScopeFactory sco
             job.Status = DownloadStatus.Running; job.Message = "Avvio…";
             await db.SaveChangesAsync(ct);
 
+            // Providers may report from several tasks at once (or fire-and-forget): the DbContext is not
+            // thread-safe, so only one save runs at a time and a report that finds it busy just skips saving.
+            var saveGate = new SemaphoreSlim(1, 1);
             var lastSave = DateTime.MinValue;
             var context = new DownloadContext(job, workDir, async (p, msg) =>
             {
-                job.Progress = Math.Clamp(p, 0, 1);
+                job.Progress = Math.Clamp(double.IsFinite(p) ? p : 0, 0, 1);
                 job.Message = msg;
-                if (DateTime.UtcNow - lastSave < TimeSpan.FromSeconds(2)) return;
-                lastSave = DateTime.UtcNow;
-                await db.SaveChangesAsync(CancellationToken.None);
+                if (DateTime.UtcNow - lastSave < TimeSpan.FromSeconds(2) || !saveGate.Wait(0)) return;
+                try
+                {
+                    lastSave = DateTime.UtcNow;
+                    await db.SaveChangesAsync(CancellationToken.None);
+                }
+                finally { saveGate.Release(); }
             });
 
-            var files = await provider.DownloadAsync(context, ct);
+            IReadOnlyList<string> files;
+            try { files = await provider.DownloadAsync(context, ct); }
+            finally { await saveGate.WaitAsync(CancellationToken.None); } // late reports stop saving from here on
             if (files.Count == 0) throw new InvalidOperationException("Nessun file video prodotto.");
 
             job.Status = DownloadStatus.PostProcessing; job.Message = "Conversione e importazione…";

@@ -28,7 +28,7 @@ public sealed class AnimeRollOptions
     public AniListOptions AniList { get; set; } = new();
     public QBittorrentOptions QBittorrent { get; set; } = new();
     public TelegramOptions Telegram { get; set; } = new();
-    public CrunchyrollOptions Crunchyroll { get; set; } = new();
+    public PluginOptions Plugins { get; set; } = new();
     public StreamSiteOptions StreamSite { get; set; } = new();
     public AppleOptions Apple { get; set; } = new();
     public AndroidOptions Android { get; set; } = new();
@@ -75,13 +75,12 @@ public sealed class TelegramOptions
     public string PhoneNumber { get; set; } = "";
 }
 
-public sealed class CrunchyrollOptions
+public sealed class PluginOptions
 {
-    /// External downloader you install and configure yourself inside the container
-    /// (mounted at /tools). Placeholders: {url} {output} {episode}.
-    /// Leave empty to disable the Crunchyroll source.
-    public string CommandTemplate { get; set; } = "";
-    public string WorkingDirectory { get; set; } = "/tools";
+    /// One sub-folder per plugin (.NET DLLs or a script with plugin.json). See PLUGINS.md.
+    public string Directory { get; set; } = "/plugins";
+    /// Per-plugin settings: Settings[pluginId][key]. Env: AnimeRoll__Plugins__Settings__<id>__<key>.
+    public Dictionary<string, Dictionary<string, string>> Settings { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed class StreamSiteOptions

@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/AnimeRoll.Plugins.Abstractions/AnimeRoll.Plugins.Abstractions.csproj" />
     <Project Path="src/AnimeRoll.Server.Api/AnimeRoll.Server.Api.csproj" />
   </Folder>
 </Solution>

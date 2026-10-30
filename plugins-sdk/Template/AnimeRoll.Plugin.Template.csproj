@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Build: dotnet publish -c Release -o out/Template   → copy out/Template to /plugins/Template on the NAS -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Provided by AnimeRoll at runtime: compile against it, don't ship it. -->
+    <ProjectReference Include="../../src/AnimeRoll.Plugins.Abstractions/AnimeRoll.Plugins.Abstractions.csproj">
+      <Private>false</Private>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </ProjectReference>
+  </ItemGroup>
+</Project>

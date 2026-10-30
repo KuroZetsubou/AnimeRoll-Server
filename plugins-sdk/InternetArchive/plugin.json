@@ -1,0 +1,5 @@
+{
+  // Optional for .NET plugins: only non-secret settings defaults.
+  "type": "dotnet",
+  "settings": { "collections": "animationandcartoons OR feature_films" }
+}

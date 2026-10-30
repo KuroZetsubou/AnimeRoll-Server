@@ -18,7 +18,7 @@ services:
       - ${ANIMEROLL_DATA:-/volume1/docker/animeroll/data}:/data
       - ${ANIMEROLL_MEDIA:-/volume1/docker/animeroll/media}:/media
       - ${ANIMEROLL_DOWNLOADS:-/volume1/docker/animeroll/downloads}:/downloads
-      - ${ANIMEROLL_TOOLS:-/volume1/docker/animeroll/tools}:/tools   # your Crunchyroll downloader goes here
+      - ${ANIMEROLL_PLUGINS:-/volume1/docker/animeroll/plugins}:/plugins   # one folder per plugin, see PLUGINS.md
     depends_on:
       - qbittorrent
 
