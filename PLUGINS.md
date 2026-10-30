@@ -22,11 +22,30 @@ Ci sono due tipi di plugin:
 
 1. Copia la cartella del plugin in `plugins/` (montata come `/plugins` nel container).
 2. Metti le impostazioni segrete nel `.env`: `AnimeRoll__Plugins__Settings__<id>__<chiave>=valore`.
-3. `docker compose restart animeroll`.
+3. Dalla cartella `AnimeRoll.Server`: `docker compose up -d animeroll`. Ricrea il container e rilegge il `.env`;
+   `docker compose restart` non basta se hai cambiato il `.env`.
 4. Controlla lo stato: `GET /api/plugins` (oppure `docker logs animeroll | grep -i plugin`).
 
 Le cartelle che iniziano con `_` o `.` vengono ignorate: rinomina `foo` in `_foo` per disattivare un plugin.
 Puoi anche mettere `"enabled": false` nel suo `plugin.json`.
+
+## Variabili d'ambiente nel .env
+
+Una riga per impostazione, nel `.env` accanto a `docker-compose.yml`:
+
+```bash
+AnimeRoll__Plugins__Settings__<id-plugin>__<chiave>=valore
+```
+
+- `__` (due trattini bassi) separa i livelli. `<id-plugin>` è l'`Id` del plugin, non il nome della cartella;
+  il trattino nell'id va bene.
+- La chiave non distingue maiuscole e minuscole. Nei plugin script arriva anche come
+  `ANIMEROLL_SETTING_<CHIAVE>` (maiuscolo, `-` → `_`).
+- Il valore va scritto così com'è: niente spazi attorno a `=`, gli spazi interni vanno bene.
+- `$` viene interpretato da Docker Compose: scrivi `$$` oppure metti il valore tra apici singoli `'…'`.
+- ` #` (spazio + cancelletto) inizia un commento: valori con `#` tra apici singoli.
+- Il `.env` vince su `plugin.json` → `settings` per la stessa chiave.
+- Dopo una modifica: `docker compose up -d animeroll` (non `restart`).
 
 ## Cosa può fare un plugin
 
