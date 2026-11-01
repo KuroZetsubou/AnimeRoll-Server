@@ -55,18 +55,25 @@ public sealed class ProviderRegistry(IEnumerable<ISourceProvider> providers, Ani
 
 public static class HttpDownload
 {
+    /// Streams to disk; a partial file left by a pause (or a restart) is resumed with a Range request.
     public static async Task<string> ToFileAsync(HttpClient http, string url, string path, DownloadContext ctx, CancellationToken ct,
         string? referer = null)
     {
+        long existing = File.Exists(path) ? new FileInfo(path).Length : 0;
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         if (referer != null) req.Headers.Referrer = new Uri(referer);
+        if (existing > 0) req.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(existing, null);
         using var res = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.RequestedRangeNotSatisfiable) return path;   // already complete
         res.EnsureSuccessStatusCode();
-        var total = res.Content.Headers.ContentLength ?? 0;
+        var resumed = res.StatusCode == System.Net.HttpStatusCode.PartialContent;
+        if (!resumed) existing = 0;                                                                 // server ignored Range
+        var total = existing + (res.Content.Headers.ContentLength ?? 0);
         await using var input = await res.Content.ReadAsStreamAsync(ct);
-        await using var output = File.Create(path);
+        await using var output = new FileStream(path, resumed ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None,
+            1 << 20, FileOptions.Asynchronous | FileOptions.SequentialScan);
         var buffer = new byte[1 << 16];
-        long done = 0; var lastReport = DateTime.MinValue;
+        long done = existing; var lastReport = DateTime.MinValue;
         int read;
         while ((read = await input.ReadAsync(buffer, ct)) > 0)
         {

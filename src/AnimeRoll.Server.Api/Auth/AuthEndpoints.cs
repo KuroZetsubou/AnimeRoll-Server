@@ -68,8 +68,9 @@ public static class AuthEndpoints
         g.MapGet("/me", async (HttpContext ctx, AppDb db) =>
         {
             var id = ctx.User.UserId();
-            var user = await db.Users.Include(u => u.Passkeys).FirstAsync(u => u.Id == id);
-            return user.ToDto();
+            // Token of a deleted user (or from another database): ask the app to sign in again.
+            var user = await db.Users.Include(u => u.Passkeys).FirstOrDefaultAsync(u => u.Id == id);
+            return user is null ? Results.Unauthorized() : Results.Ok(user.ToDto());
         }).RequireAuthorization();
 
         // ---- Passkey registration (must be logged in with password first) ----

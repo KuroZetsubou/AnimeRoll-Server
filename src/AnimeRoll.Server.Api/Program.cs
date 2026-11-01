@@ -80,7 +80,9 @@ builder.Services.AddTransient<ProviderRegistry>();
 
 builder.Services.AddScoped<MediaPipeline>();
 builder.Services.AddSingleton<DownloadQueue>();
+builder.Services.AddSingleton<QueueSettingsStore>();
 builder.Services.AddHostedService<DownloadWorker>();
+builder.Services.AddHostedService<SubtitleBackfill>();
 
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p
     .WithOrigins(cfg.Passkey.Origins.ToArray()).AllowAnyHeader().AllowAnyMethod()));
@@ -88,7 +90,11 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p => p
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
-    scope.ServiceProvider.GetRequiredService<AppDb>().Database.EnsureCreated();
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDb>();
+    db.Database.EnsureCreated();
+    SchemaUpgrade.Apply(db);
+}
 await app.Services.GetRequiredService<PluginHost>().LoadAsync(CancellationToken.None);
 
 app.UseCors();
@@ -117,6 +123,7 @@ app.MapAniList();
 app.MapLibrary();
 app.MapMedia();
 app.MapSourcesAndDownloads();
+app.MapRepair();
 app.MapPlugins();
 
 // Web client (AnimeRoll.Client/Web build) is copied to wwwroot in the Docker image.

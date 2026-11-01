@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import urllib.parse
+import urllib.error
 import urllib.request
 
 
@@ -47,10 +48,24 @@ def download(req):
     name = os.path.basename(urllib.parse.urlparse(url).path) or "video.mp4"
     path = os.path.join(out_dir, name)
 
-    request = urllib.request.Request(url, headers={"User-Agent": "AnimeRoll-Plugin/1.0"})
-    with urllib.request.urlopen(request, timeout=60) as res, open(path, "wb") as f:
-        total = int(res.headers.get("Content-Length") or 0)
-        done, last_pct = 0, -1
+    # A paused job keeps its folder: continue the partial file with a Range request.
+    existing = os.path.getsize(path) if os.path.exists(path) else 0
+    headers = {"User-Agent": "AnimeRoll-Plugin/1.0"}
+    if existing:
+        headers["Range"] = f"bytes={existing}-"
+    request = urllib.request.Request(url, headers=headers)
+    try:
+        res = urllib.request.urlopen(request, timeout=60)
+    except urllib.error.HTTPError as e:
+        if e.code == 416:  # nothing left to download
+            emit("file", path=name)
+            return
+        raise
+    resumed = res.status == 206
+    with res, open(path, "ab" if resumed else "wb") as f:
+        done = existing if resumed else 0
+        total = done + int(res.headers.get("Content-Length") or 0)
+        last_pct = -1
         while chunk := res.read(1 << 16):
             f.write(chunk)
             done += len(chunk)

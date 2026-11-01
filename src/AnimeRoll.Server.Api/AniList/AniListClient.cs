@@ -66,6 +66,12 @@ public sealed class AniListClient(HttpClient http, IOptions<AnimeRollOptions> op
             """, new { p = perPage, s = season, y = now.Year }, null, ct))["Page"]!["media"]!.AsArray());
     }
 
+    /// Titles of one season (WINTER, SPRING, SUMMER, FALL) of a year, optionally limited to one genre.
+    public async Task<List<AniListMedia>> BrowseAsync(string season, int year, string? genre, CancellationToken ct) =>
+        ParseMediaList((await QueryAsync($$"""
+            query($s:MediaSeason,$y:Int,$g:String){ Page(perPage:50){ media(type:ANIME, season:$s, seasonYear:$y, genre:$g, sort:POPULARITY_DESC, isAdult:false){ {{MediaFields}} } } }
+            """, new { s = season, y = year, g = string.IsNullOrWhiteSpace(genre) ? null : genre }, null, ct))["Page"]!["media"]!.AsArray());
+
     public async Task<List<AniListMedia>> SearchAsync(string q, CancellationToken ct) =>
         ParseMediaList((await QueryAsync($$"""
             query($q:String){ Page(perPage:30){ media(type:ANIME, search:$q, sort:SEARCH_MATCH){ {{MediaFields}} } } }

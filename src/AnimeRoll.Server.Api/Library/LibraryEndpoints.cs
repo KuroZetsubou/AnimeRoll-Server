@@ -26,7 +26,9 @@ public sealed record HomeDto(
 
 public sealed record ProgressRequest(double PositionSeconds, double? DurationSeconds);
 
-public sealed record StreamInfo(string Url, string DownloadUrl, double? DurationSeconds, double? ResumeAt);
+public sealed record SubtitleInfo(int Index, string? Language, string Label, bool IsDefault, bool IsForced, bool IsSignsOnly, string Url);
+
+public sealed record StreamInfo(string Url, string DownloadUrl, double? DurationSeconds, double? ResumeAt, List<SubtitleInfo> Subtitles);
 
 public static class LibraryEndpoints
 {
@@ -101,12 +103,16 @@ public static class LibraryEndpoints
             var ep = await db.Episodes.FindAsync(id);
             if (ep is null) return Results.NotFound();
             var p = await db.WatchProgress.FirstOrDefaultAsync(w => w.UserId == uid && w.EpisodeId == id);
-            var token = tokens.CreateStreamToken(uid, id);
+            var token = Uri.EscapeDataString(tokens.CreateStreamToken(uid, id));
             var baseUrl = o.Value.PublicBaseUrl.TrimEnd('/');
+            var subs = (SubtitleFiles.Load(Path.Combine(o.Value.MediaPath, ep.FilePath)) ?? [])
+                .Select(s => new SubtitleInfo(s.Index, s.Language, s.Label, s.IsDefault, s.IsForced, s.IsSignsOnly,
+                    $"{baseUrl}/media/episodes/{id}/subtitles/{s.Index}.vtt?t={token}"))
+                .ToList();
             return Results.Ok(new StreamInfo(
-                $"{baseUrl}/media/episodes/{id}?t={Uri.EscapeDataString(token)}",
-                $"{baseUrl}/media/episodes/{id}?t={Uri.EscapeDataString(token)}&download=1",
-                ep.DurationSeconds, p is { Completed: false } ? p.PositionSeconds : null));
+                $"{baseUrl}/media/episodes/{id}?t={token}",
+                $"{baseUrl}/media/episodes/{id}?t={token}&download=1",
+                ep.DurationSeconds, p is { Completed: false } ? p.PositionSeconds : null, subs));
         });
 
         g.MapPut("/episodes/{id:int}/progress", async (int id, ProgressRequest req, HttpContext ctx, AppDb db, AniListClient al,
@@ -115,8 +121,13 @@ public static class LibraryEndpoints
             var uid = ctx.User.UserId();
             var ep = await db.Episodes.Include(e => e.Series).FirstOrDefaultAsync(e => e.Id == id, ct);
             if (ep is null) return Results.NotFound();
-            var p = await db.WatchProgress.FirstOrDefaultAsync(w => w.UserId == uid && w.EpisodeId == id, ct);
-            if (p is null) { p = new WatchProgress { UserId = uid, EpisodeId = id }; db.WatchProgress.Add(p); }
+            // Atomic "create if missing" on the unique (UserId, EpisodeId) index: two saves arriving together
+            // (the player closing, a periodic save) can't both insert the row. Same TEXT format EF uses for Guid.
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT OR IGNORE INTO WatchProgress (UserId, EpisodeId, PositionSeconds, Completed, SyncedToAniList, UpdatedAt)
+                VALUES ({uid.ToString().ToUpperInvariant()}, {id}, 0, 0, 0, {DateTime.UtcNow})
+                """, ct);
+            var p = await db.WatchProgress.FirstAsync(w => w.UserId == uid && w.EpisodeId == id, ct);
             p.PositionSeconds = req.PositionSeconds;
             p.DurationSeconds = req.DurationSeconds ?? ep.DurationSeconds;
             p.UpdatedAt = DateTime.UtcNow;
@@ -149,6 +160,7 @@ public static class LibraryEndpoints
             var ep = await db.Episodes.FindAsync(id);
             if (ep is null) return Results.NotFound();
             var path = Path.Combine(o.Value.MediaPath, ep.FilePath);
+            SubtitleFiles.DeleteFor(path);
             if (File.Exists(path)) File.Delete(path);
             db.WatchProgress.RemoveRange(db.WatchProgress.Where(w => w.EpisodeId == id));
             db.Episodes.Remove(ep);
@@ -163,10 +175,21 @@ public static class LibraryEndpoints
             var dir = Path.Combine(o.Value.DataPath, "work", "upload-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(dir);
             var tmp = Path.Combine(dir, MediaPipeline.Safe(Path.GetFileName(file.FileName)));
-            await using (var fs = File.Create(tmp)) await file.CopyToAsync(fs, ct);
-            var eps = await pipeline.ImportAsync([tmp], seriesTitle, aniListId, episodeNumber, "local", ct);
-            Directory.Delete(dir, true);
-            return Results.Ok(eps.Select(e => ToDto(e, null)));
+            try
+            {
+                await using (var fs = File.Create(tmp)) await file.CopyToAsync(fs, ct);
+                var eps = await pipeline.ImportAsync([tmp], seriesTitle, aniListId, episodeNumber, "local", ct);
+                return Results.Ok(eps.Select(e => ToDto(e, null)));
+            }
+            catch (InvalidOperationException e)
+            {
+                // Rejected file (e.g. audio/video out of sync): tell the user why.
+                return Results.UnprocessableEntity(new { error = e.Message });
+            }
+            finally
+            {
+                if (Directory.Exists(dir)) Directory.Delete(dir, true);
+            }
         }).DisableAntiforgery().WithMetadata(new RequestSizeLimitAttribute(20L * 1024 * 1024 * 1024));
 
         // ---- Local files: import a folder already on the NAS (/media/inbox) ----
@@ -195,7 +218,7 @@ public static class LibraryEndpoints
     /// Byte-range file serving (seek + resumable downloads). Auth via signed ?t= token.
     public static void MapMedia(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/media/episodes/{id:int}", async (int id, string? t, bool? download, AppDb db, TokenService tokens, IOptions<AnimeRollOptions> o) =>
+        app.MapGet("/media/episodes/{id:int}", async (int id, string? t, string? download, AppDb db, TokenService tokens, IOptions<AnimeRollOptions> o) =>
         {
             if (tokens.ValidateStreamToken(t, id) is null) return Results.Unauthorized();
             var ep = await db.Episodes.Include(e => e.Series).FirstOrDefaultAsync(e => e.Id == id);
@@ -203,7 +226,20 @@ public static class LibraryEndpoints
             var path = Path.GetFullPath(Path.Combine(o.Value.MediaPath, ep.FilePath));
             if (!path.StartsWith(Path.GetFullPath(o.Value.MediaPath)) || !File.Exists(path)) return Results.NotFound();
             return Results.File(path, "video/mp4",
-                fileDownloadName: download == true ? Path.GetFileName(path) : null, enableRangeProcessing: true);
+                fileDownloadName: download is "1" or "true" ? Path.GetFileName(path) : null, enableRangeProcessing: true);
+        }).WithTags("Media");
+
+        app.MapGet("/media/episodes/{id:int}/subtitles/{index:int}.vtt", async (int id, int index, string? t, AppDb db, TokenService tokens,
+            IOptions<AnimeRollOptions> o) =>
+        {
+            if (tokens.ValidateStreamToken(t, id) is null) return Results.Unauthorized();
+            var ep = await db.Episodes.FindAsync(id);
+            if (ep is null) return Results.NotFound();
+            var mp4 = Path.GetFullPath(Path.Combine(o.Value.MediaPath, ep.FilePath));
+            var track = SubtitleFiles.Load(mp4)?.FirstOrDefault(s => s.Index == index);
+            if (track is null) return Results.NotFound();
+            var path = Path.Combine(Path.GetDirectoryName(mp4)!, Path.GetFileName(track.File));
+            return File.Exists(path) ? Results.File(path, "text/vtt; charset=utf-8") : Results.NotFound();
         }).WithTags("Media");
     }
 }

@@ -73,7 +73,8 @@ public sealed class WatchProgress
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
-public enum DownloadStatus { Queued, Running, PostProcessing, Completed, Failed, Cancelled }
+/// Stored as a number: new values only ever go at the end.
+public enum DownloadStatus { Queued, Running, PostProcessing, Completed, Failed, Cancelled, Paused }
 
 public sealed class DownloadJob
 {
@@ -87,6 +88,8 @@ public sealed class DownloadJob
     public int? AniListId { get; set; }
     public double? EpisodeNumber { get; set; }
     public DownloadStatus Status { get; set; } = DownloadStatus.Queued;
+    /// Higher runs first: -1 bassa, 0 normale, 1 alta, 10 "avvia subito".
+    public int Priority { get; set; }
     public double Progress { get; set; }
     public string? Message { get; set; }
     public int? EpisodeId { get; set; }

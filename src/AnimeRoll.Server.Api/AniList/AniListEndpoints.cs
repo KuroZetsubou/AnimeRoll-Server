@@ -47,6 +47,13 @@ public static class AniListEndpoints
 
         g.MapGet("/search", (string q, AniListClient al, CancellationToken ct) => al.SearchAsync(q, ct)).RequireAuthorization();
         g.MapGet("/trending", (AniListClient al, CancellationToken ct) => al.TrendingAsync(30, ct)).RequireAuthorization();
+        // Esplora: one season of one year (season = WINTER|SPRING|SUMMER|FALL), optional genre.
+        g.MapGet("/browse", async (string season, int year, string? genre, AniListClient al, CancellationToken ct) =>
+        {
+            var s = season.ToUpperInvariant();
+            if (s is not ("WINTER" or "SPRING" or "SUMMER" or "FALL")) return Results.BadRequest("Stagione non valida.");
+            return Results.Ok(await al.BrowseAsync(s, year, genre, ct));
+        }).RequireAuthorization();
         g.MapGet("/media/{id:int}", async (int id, AniListClient al, CancellationToken ct) =>
             await al.MediaAsync(id, ct) is { } m ? Results.Ok(m) : Results.NotFound()).RequireAuthorization();
 
