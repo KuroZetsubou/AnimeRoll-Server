@@ -16,19 +16,35 @@ public static class DiskSpace
 
     public static void Configure(AnimeRollOptions o) => ReserveBytes = Math.Max(0, o.MinFreeSpaceGb) * 1024L * 1024 * 1024;
 
-    /// The mounted drive that contains `path` (the longest matching mount point).
+    /// The mounted drive that contains `path` (the longest matching mount point). Never throws:
+    /// some systems list odd mount points, and a failed space check must not stop a download.
     private static DriveInfo? DriveOf(string path)
     {
-        var full = Path.GetFullPath(path);
-        return DriveInfo.GetDrives()
-            .Where(d => d.IsReady && full.StartsWith(d.Name, StringComparison.Ordinal))
-            .OrderByDescending(d => d.Name.Length).FirstOrDefault();
+        try
+        {
+            var full = Path.GetFullPath(path);
+            var best = default(DriveInfo);
+            foreach (var d in DriveInfo.GetDrives())
+            {
+                try
+                {
+                    if (!d.IsReady || !full.StartsWith(d.Name, StringComparison.Ordinal)) continue;
+                    if (best is null || d.Name.Length > best.Name.Length) best = d;
+                }
+                catch (Exception) { /* unreadable mount: skip it */ }
+            }
+            return best;
+        }
+        catch (Exception)
+        {
+            try { return new DriveInfo(Path.GetPathRoot(Path.GetFullPath(path)) ?? "/"); } catch (Exception) { return null; }
+        }
     }
 
     public static (long Total, long Free)? Read(string path)
     {
         try { return DriveOf(path) is { } d ? (d.TotalSize, d.AvailableFreeSpace) : null; }
-        catch (IOException) { return null; }
+        catch (Exception) { return null; }
     }
 
     /// Throws when writing `neededBytes` to each of `paths` would leave less than the reserve.

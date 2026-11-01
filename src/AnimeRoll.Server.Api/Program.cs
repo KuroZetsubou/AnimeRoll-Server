@@ -94,7 +94,7 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDb>();
     db.Database.EnsureCreated();
-    SchemaUpgrade.Apply(db);
+    SchemaUpgrade.Apply(db, cfg.MediaPath);
 }
 await app.Services.GetRequiredService<PluginHost>().LoadAsync(CancellationToken.None);
 

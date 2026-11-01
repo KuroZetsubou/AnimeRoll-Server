@@ -19,30 +19,59 @@ public sealed partial class MediaPipeline(AppDb db, AniListClient aniList, IOpti
     private readonly AnimeRollOptions _o = options.Value;
     private static readonly string[] AppleFriendly = [".mp4", ".m4v", ".mov"];
 
+    /// Downloads run in parallel: two jobs of the same title must not both create the series.
+    private static readonly SemaphoreSlim SeriesLock = new(1, 1);
+
     public async Task<Series> EnsureSeriesAsync(string title, int? aniListId, CancellationToken ct)
     {
-        var series = aniListId != null
-            ? await db.Series.FirstOrDefaultAsync(s => s.AniListId == aniListId, ct)
-            : await db.Series.FirstOrDefaultAsync(s => s.Title == title, ct);
-        if (series != null) return series;
+        await SeriesLock.WaitAsync(ct);
+        try
+        {
+            var series = await FindSeriesAsync(title, aniListId, ct);
+            if (series != null) return series;
 
-        series = new Series { Title = title, AniListId = aniListId };
+            series = new Series { Title = title, AniListId = aniListId };
+            if (aniListId != null)
+            {
+                try
+                {
+                    if (await aniList.MediaAsync(aniListId.Value, ct) is { } m)
+                    {
+                        series.Title = m.Title; series.TitleRomaji = m.TitleRomaji; series.Description = m.Description;
+                        series.PosterUrl = m.CoverUrl; series.BannerUrl = m.BannerUrl; series.TotalEpisodes = m.Episodes;
+                        series.Genres = string.Join(", ", m.Genres); series.Year = m.Year;
+                    }
+                }
+                catch (Exception e) { log.LogWarning(e, "AniList metadata non disponibili per {Id}", aniListId); }
+            }
+            db.Series.Add(series);
+            try { await db.SaveChangesAsync(ct); }
+            catch (DbUpdateException) when (aniListId != null)
+            {
+                // The unique index on AniListId caught a duplicate created elsewhere: use that one.
+                db.Entry(series).State = EntityState.Detached;
+                return await FindSeriesAsync(title, aniListId, ct) ?? throw new InvalidOperationException("Serie non creata.");
+            }
+            return series;
+        }
+        finally { SeriesLock.Release(); }
+    }
+
+    /// By AniList id when there is one, else by title (any case). A series made earlier without an id
+    /// that has the same title is adopted, so it doesn't end up twice.
+    private async Task<Series?> FindSeriesAsync(string title, int? aniListId, CancellationToken ct)
+    {
         if (aniListId != null)
         {
-            try
-            {
-                if (await aniList.MediaAsync(aniListId.Value, ct) is { } m)
-                {
-                    series.Title = m.Title; series.TitleRomaji = m.TitleRomaji; series.Description = m.Description;
-                    series.PosterUrl = m.CoverUrl; series.BannerUrl = m.BannerUrl; series.TotalEpisodes = m.Episodes;
-                    series.Genres = string.Join(", ", m.Genres); series.Year = m.Year;
-                }
-            }
-            catch (Exception e) { log.LogWarning(e, "AniList metadata non disponibili per {Id}", aniListId); }
+            var byId = await db.Series.FirstOrDefaultAsync(s => s.AniListId == aniListId, ct);
+            if (byId != null) return byId;
+            var lower = title.ToLower();
+            var orphan = await db.Series.FirstOrDefaultAsync(s => s.AniListId == null && s.Title.ToLower() == lower, ct);
+            if (orphan != null) { orphan.AniListId = aniListId; await db.SaveChangesAsync(ct); }
+            return orphan;
         }
-        db.Series.Add(series);
-        await db.SaveChangesAsync(ct);
-        return series;
+        var t = title.ToLower();
+        return await db.Series.FirstOrDefaultAsync(s => s.Title.ToLower() == t, ct);
     }
 
     public async Task<List<Episode>> ImportAsync(IReadOnlyList<string> files, string seriesTitle, int? aniListId,
