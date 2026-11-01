@@ -54,6 +54,7 @@ public static class AniListEndpoints
             if (s is not ("WINTER" or "SPRING" or "SUMMER" or "FALL")) return Results.BadRequest("Stagione non valida.");
             return Results.Ok(await al.BrowseAsync(s, year, genre, ct));
         }).RequireAuthorization();
+        g.MapGet("/media/{id:int}/recommendations", (int id, AniListClient al, CancellationToken ct) => al.RecommendationsAsync(id, ct)).RequireAuthorization();
         g.MapGet("/media/{id:int}", async (int id, AniListClient al, CancellationToken ct) =>
             await al.MediaAsync(id, ct) is { } m ? Results.Ok(m) : Results.NotFound()).RequireAuthorization();
 

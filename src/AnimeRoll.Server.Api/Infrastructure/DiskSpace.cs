@@ -1,0 +1,55 @@
+using AnimeRoll.Server.Api.Options;
+
+namespace AnimeRoll.Server.Api.Infrastructure;
+
+/// Raised when the NAS doesn't have room for what is about to be written.
+public sealed class InsufficientSpaceException(string message) : InvalidOperationException(message);
+
+public sealed record StorageInfo(long TotalBytes, long FreeBytes, long LibraryBytes, long ReserveBytes);
+
+/// Free space on the disks the server writes to (library, work folder, torrents).
+/// Every download, upload and import calls `EnsureRoom` first so a full NAS fails early with a clear message.
+public static class DiskSpace
+{
+    /// Always kept free (AnimeRoll__MinFreeSpaceGb), so the NAS itself never fills up.
+    public static long ReserveBytes { get; private set; } = 2L * 1024 * 1024 * 1024;
+
+    public static void Configure(AnimeRollOptions o) => ReserveBytes = Math.Max(0, o.MinFreeSpaceGb) * 1024L * 1024 * 1024;
+
+    /// The mounted drive that contains `path` (the longest matching mount point).
+    private static DriveInfo? DriveOf(string path)
+    {
+        var full = Path.GetFullPath(path);
+        return DriveInfo.GetDrives()
+            .Where(d => d.IsReady && full.StartsWith(d.Name, StringComparison.Ordinal))
+            .OrderByDescending(d => d.Name.Length).FirstOrDefault();
+    }
+
+    public static (long Total, long Free)? Read(string path)
+    {
+        try { return DriveOf(path) is { } d ? (d.TotalSize, d.AvailableFreeSpace) : null; }
+        catch (IOException) { return null; }
+    }
+
+    /// Throws when writing `neededBytes` to each of `paths` would leave less than the reserve.
+    /// Paths on the same disk add up (a download in the work folder plus the file in the library).
+    public static void EnsureRoom(long neededBytes, params string[] paths)
+    {
+        foreach (var group in paths.Select(p => (Path: p, Drive: DriveOf(p))).Where(x => x.Drive != null).GroupBy(x => x.Drive!.Name))
+        {
+            var free = group.First().Drive!.AvailableFreeSpace;
+            var needed = neededBytes * group.Count() + ReserveBytes;
+            if (free < needed)
+                throw new InsufficientSpaceException(neededBytes == 0
+                    ? $"Spazio insufficiente sul NAS: liberi {Format(free)}, meno della riserva di {Format(ReserveBytes)}. Libera spazio eliminando qualche episodio."
+                    : $"Spazio insufficiente sul NAS: servono {Format(neededBytes * group.Count())} (più {Format(ReserveBytes)} di riserva), liberi {Format(free)}. Libera spazio eliminando qualche episodio.");
+        }
+    }
+
+    public static string Format(long bytes) => bytes switch
+    {
+        >= 1L << 30 => $"{bytes / (double)(1L << 30):0.#} GB",
+        >= 1L << 20 => $"{bytes / (double)(1L << 20):0} MB",
+        _ => $"{bytes / 1024} KB",
+    };
+}

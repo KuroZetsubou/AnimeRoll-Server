@@ -55,6 +55,8 @@ public sealed partial class MediaPipeline(AppDb db, AniListClient aniList, IOpti
 
         foreach (var file in files)
         {
+            // Converting writes a second copy next to the original, then the file moves into the library.
+            AnimeRoll.Server.Api.Infrastructure.DiskSpace.EnsureRoom(new FileInfo(file).Length, Path.GetDirectoryName(file)!, _o.MediaPath);
             var number = files.Count == 1 && episodeNumber != null ? episodeNumber.Value : GuessEpisodeNumber(file) ?? episodeNumber ?? 0;
             // Subtitles first, from the original file: WebVTT keeps overlapping lines (dialogue + signs)
             // that mov_text inside an MP4 can't, and the apps render them in sync themselves.
@@ -94,9 +96,12 @@ public sealed partial class MediaPipeline(AppDb db, AniListClient aniList, IOpti
     }
 
     /// MKV/AVI → MP4 copying streams (fast). Falls back to AAC audio when the codec isn't MP4-compatible.
+    /// Video the Apple players can't decode (H.264 10-bit, 4:2:2/4:4:4, VP9, AV1…) is re-encoded to 8-bit H.264.
     /// Subtitles are NOT put in the MP4: they are extracted to WebVTT sidecars (ExtractSubtitlesAsync).
     /// <param name="force">Always rewrite (used by "Ripara episodio"), even for an MP4 that looks fine.</param>
     /// <param name="outputDir">Where to write the converted file (default: next to the input).</param>
+    private static readonly string[] AppleVideoCodecs = ["h264", "hevc", "mpeg4"];
+
     public async Task<string> EnsureMp4Async(string file, CancellationToken ct, bool force = false, string? outputDir = null)
     {
         // "h264,yuv420p10le" → codec + pixel format of the first video stream.
@@ -105,7 +110,10 @@ public sealed partial class MediaPipeline(AppDb db, AniListClient aniList, IOpti
         var pixFmt = probe.ElementAtOrDefault(1) ?? "";
         // Apple devices can't decode H.264 10-bit (Hi10P, common in fansub releases) or 4:2:2/4:4:4:
         // only those get re-encoded (slow); everything else is copied as is (fast).
-        var mustReencode = codec == "h264" && pixFmt is not ("yuv420p" or "yuvj420p" or "");
+        // Video codecs the Apple players (AVPlayer, Apple TV) decode: anything else (VP9, AV1, VP8, WMV, Theora…)
+        // plays as a black picture with working audio, so it is converted to H.264 too.
+        var mustReencode = (codec == "h264" && pixFmt is not ("yuv420p" or "yuvj420p" or ""))
+            || (codec != "" && !AppleVideoCodecs.Contains(codec));
         // An MP4 is kept as is only when its index (moov) comes first: otherwise every open and seek
         // in the apps first has to fetch the end of the file. A stream copy with +faststart fixes it.
         // Embedded subtitles are stripped too: the apps show the WebVTT sidecars, never both.

@@ -69,6 +69,9 @@ public static class HttpDownload
         var resumed = res.StatusCode == System.Net.HttpStatusCode.PartialContent;
         if (!resumed) existing = 0;                                                                 // server ignored Range
         var total = existing + (res.Content.Headers.ContentLength ?? 0);
+        // Fail early (and clearly) when the rest of the file doesn't fit; the file lands in the work folder, then the library.
+        if (res.Content.Headers.ContentLength is > 0 and var remaining)
+            AnimeRoll.Server.Api.Infrastructure.DiskSpace.EnsureRoom(remaining, Path.GetDirectoryName(Path.GetFullPath(path))!);
         await using var input = await res.Content.ReadAsStreamAsync(ct);
         await using var output = new FileStream(path, resumed ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None,
             1 << 20, FileOptions.Asynchronous | FileOptions.SequentialScan);

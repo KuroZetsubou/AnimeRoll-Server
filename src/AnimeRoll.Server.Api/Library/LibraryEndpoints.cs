@@ -1,3 +1,4 @@
+using AnimeRoll.Server.Api.Infrastructure;
 using AnimeRoll.Server.Api.AniList;
 using AnimeRoll.Server.Api.Auth;
 using AnimeRoll.Server.Api.Data;
@@ -155,16 +156,22 @@ public static class LibraryEndpoints
             return Results.Ok(new { p.Completed, aniListSynced = syncedNow });
         });
 
+        // Delete an episode from the NAS: the file, its subtitles and everyone's progress. A series left
+        // without episodes disappears too (its folder as well, when empty).
         g.MapDelete("/episodes/{id:int}", async (int id, AppDb db, IOptions<AnimeRollOptions> o) =>
         {
             var ep = await db.Episodes.FindAsync(id);
             if (ep is null) return Results.NotFound();
-            var path = Path.Combine(o.Value.MediaPath, ep.FilePath);
-            SubtitleFiles.DeleteFor(path);
-            if (File.Exists(path)) File.Delete(path);
-            db.WatchProgress.RemoveRange(db.WatchProgress.Where(w => w.EpisodeId == id));
-            db.Episodes.Remove(ep);
-            await db.SaveChangesAsync();
+            await RemoveEpisodesAsync(db, o.Value, [ep]);
+            return Results.NoContent();
+        });
+
+        // Delete a whole series (to free space): every episode, file and subtitle.
+        g.MapDelete("/series/{id:int}", async (int id, AppDb db, IOptions<AnimeRollOptions> o) =>
+        {
+            var series = await db.Series.Include(s => s.Episodes).FirstOrDefaultAsync(s => s.Id == id);
+            if (series is null) return Results.NotFound();
+            await RemoveEpisodesAsync(db, o.Value, series.Episodes.ToList());
             return Results.NoContent();
         });
 
@@ -172,6 +179,9 @@ public static class LibraryEndpoints
         g.MapPost("/upload", async ([FromForm] IFormFile file, [FromForm] string seriesTitle, [FromForm] int? aniListId,
             [FromForm] double? episodeNumber, MediaPipeline pipeline, IOptions<AnimeRollOptions> o, CancellationToken ct) =>
         {
+            // Temp copy in the work folder, then the converted file in the library: refuse before copying anything.
+            try { DiskSpace.EnsureRoom(file.Length, Path.Combine(o.Value.DataPath, "work"), o.Value.MediaPath); }
+            catch (InsufficientSpaceException e) { return Results.Json(new { error = e.Message }, statusCode: StatusCodes.Status507InsufficientStorage); }
             var dir = Path.Combine(o.Value.DataPath, "work", "upload-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(dir);
             var tmp = Path.Combine(dir, MediaPipeline.Safe(Path.GetFileName(file.FileName)));
@@ -180,6 +190,10 @@ public static class LibraryEndpoints
                 await using (var fs = File.Create(tmp)) await file.CopyToAsync(fs, ct);
                 var eps = await pipeline.ImportAsync([tmp], seriesTitle, aniListId, episodeNumber, "local", ct);
                 return Results.Ok(eps.Select(e => ToDto(e, null)));
+            }
+            catch (InsufficientSpaceException e)
+            {
+                return Results.Json(new { error = e.Message }, statusCode: StatusCodes.Status507InsufficientStorage);
             }
             catch (InvalidOperationException e)
             {
@@ -213,6 +227,31 @@ public static class LibraryEndpoints
             }
             return Results.Ok(new { imported });
         });
+    }
+
+    private static async Task RemoveEpisodesAsync(AppDb db, AnimeRollOptions o, List<Episode> episodes)
+    {
+        var seriesIds = episodes.Select(e => e.SeriesId).Distinct().ToList();
+        var ids = episodes.Select(e => e.Id).ToList();
+        foreach (var ep in episodes)
+        {
+            var path = Path.Combine(o.MediaPath, ep.FilePath);
+            SubtitleFiles.DeleteFor(path);
+            if (File.Exists(path)) File.Delete(path);
+        }
+        db.WatchProgress.RemoveRange(db.WatchProgress.Where(w => ids.Contains(w.EpisodeId)));
+        db.Episodes.RemoveRange(episodes);
+        await db.SaveChangesAsync();
+        foreach (var sid in seriesIds)
+        {
+            if (await db.Episodes.AnyAsync(e => e.SeriesId == sid)) continue;
+            var series = await db.Series.FindAsync(sid);
+            if (series is null) continue;
+            db.Series.Remove(series);
+            var folder = Path.Combine(o.MediaPath, MediaPipeline.Safe(series.Title));
+            if (Directory.Exists(folder) && !Directory.EnumerateFileSystemEntries(folder).Any()) Directory.Delete(folder);
+        }
+        await db.SaveChangesAsync();
     }
 
     /// Byte-range file serving (seek + resumable downloads). Auth via signed ?t= token.

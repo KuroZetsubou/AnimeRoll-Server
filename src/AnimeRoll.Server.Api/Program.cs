@@ -20,6 +20,7 @@ var cfg = section.Get<AnimeRollOptions>() ?? new AnimeRollOptions();
 
 if (cfg.Jwt.Key.Length < 32)
     throw new InvalidOperationException("Imposta AnimeRoll__Jwt__Key con almeno 32 caratteri casuali.");
+AnimeRoll.Server.Api.Infrastructure.DiskSpace.Configure(cfg);
 Directory.CreateDirectory(cfg.DataPath);
 Directory.CreateDirectory(cfg.MediaPath);
 

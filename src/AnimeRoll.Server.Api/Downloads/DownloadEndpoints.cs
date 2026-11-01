@@ -1,4 +1,5 @@
 using AnimeRoll.Server.Api.Auth;
+using AnimeRoll.Server.Api.Infrastructure;
 using AnimeRoll.Server.Api.Data;
 using AnimeRoll.Server.Api.Options;
 using Microsoft.Extensions.Options;
@@ -42,10 +43,18 @@ public static class DownloadEndpoints
 
         var d = app.MapGroup("/api/downloads").WithTags("Downloads").RequireAuthorization();
 
-        d.MapPost("/", async (DownloadRequest req, HttpContext ctx, AppDb db, DownloadQueue queue, ProviderRegistry reg) =>
+        d.MapPost("/", async (DownloadRequest req, HttpContext ctx, AppDb db, DownloadQueue queue, ProviderRegistry reg, IOptions<AnimeRollOptions> o) =>
         {
             if (reg.Get(req.Source) is not { Enabled: true }) return Results.BadRequest(new { error = $"Fonte '{req.Source}' non disponibile." });
             if (req.Items.Count == 0) return Results.BadRequest(new { error = "Nessun episodio selezionato." });
+            // Refuse right away when the NAS is (nearly) full, and catch torrents that cannot work before queueing them.
+            try { DiskSpace.EnsureRoom(0, o.Value.MediaPath, Path.Combine(o.Value.DataPath, "work")); }
+            catch (InsufficientSpaceException e) { return Results.Json(new { error = e.Message }, statusCode: StatusCodes.Status507InsufficientStorage); }
+            if (req.Source.Equals("torrent", StringComparison.OrdinalIgnoreCase))
+            {
+                var problem = await TorrentProvider.CheckRequestAsync(req.Items.Select(i => i.SourceRef), db);
+                if (problem is not null) return Results.BadRequest(new { error = problem });
+            }
             var jobs = req.Items.Select(i => new DownloadJob
             {
                 RequestedBy = ctx.User.UserId(), Source = req.Source.ToLowerInvariant(), SourceRef = i.SourceRef,
@@ -154,6 +163,14 @@ public static class DownloadEndpoints
             queue.Wake();
             return Results.Accepted();
         });
+
+        // Free space on the NAS (Profilo): disk total and free, what the library takes, and the reserve kept free.
+        app.MapGet("/api/settings/storage", async (AppDb db, IOptions<AnimeRollOptions> o) =>
+        {
+            var disk = DiskSpace.Read(o.Value.MediaPath);
+            var library = await db.Episodes.SumAsync(e => (long?)e.SizeBytes) ?? 0;
+            return new StorageInfo(disk?.Total ?? 0, disk?.Free ?? 0, library, DiskSpace.ReserveBytes);
+        }).WithTags("Downloads").RequireAuthorization();
 
         var settingsGroup = app.MapGroup("/api/settings/queue").WithTags("Downloads").RequireAuthorization();
         settingsGroup.MapGet("/", (QueueSettingsStore s) => s.Current);

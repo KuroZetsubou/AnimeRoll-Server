@@ -20,6 +20,9 @@ public sealed class AnimeRollOptions
 
     public string FfmpegPath { get; set; } = "ffmpeg";
 
+    /// Free space always left on the NAS (GB): downloads, uploads and imports that would go below it are refused.
+    public int MinFreeSpaceGb { get; set; } = 2;
+
     /// Allow creating the first account through the API. Turn off after setup.
     public bool AllowRegistration { get; set; } = true;
 
@@ -65,6 +68,8 @@ public sealed class QBittorrentOptions
     public string Username { get; set; } = "admin";
     public string Password { get; set; } = "";
     public string Category { get; set; } = "animeroll";
+    /// How long to wait for a magnet's metadata before calling the torrent dead.
+    public int MetadataTimeoutSeconds { get; set; } = 90;
 }
 
 public sealed class TelegramOptions

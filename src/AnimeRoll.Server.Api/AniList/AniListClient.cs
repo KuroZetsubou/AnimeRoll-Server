@@ -77,6 +77,21 @@ public sealed class AniListClient(HttpClient http, IOptions<AnimeRollOptions> op
             query($q:String){ Page(perPage:30){ media(type:ANIME, search:$q, sort:SEARCH_MATCH){ {{MediaFields}} } } }
             """, new { q }, null, ct))["Page"]!["media"]!.AsArray());
 
+    /// What AniList recommends to someone who liked this title (most recommended first, adult titles hidden).
+    public async Task<List<AniListMedia>> RecommendationsAsync(int id, CancellationToken ct)
+    {
+        var data = await QueryAsync($$"""
+            query($id:Int){ Media(id:$id, type:ANIME){ recommendations(sort:RATING_DESC, perPage:24){ nodes { rating mediaRecommendation { isAdult {{MediaFields}} } } } } }
+            """, new { id }, null, ct);
+        var nodes = data["Media"]?["recommendations"]?["nodes"]?.AsArray();
+        if (nodes is null) return [];
+        return nodes
+            .Select(n => n?["mediaRecommendation"])
+            .Where(m => m is not null && m["isAdult"]?.GetValueKind() != JsonValueKind.True)
+            .Select(m => ParseMedia(m!))
+            .ToList();
+    }
+
     public async Task<AniListMedia?> MediaAsync(int id, CancellationToken ct)
     {
         var m = (await QueryAsync($$"""query($id:Int){ Media(id:$id, type:ANIME){ {{MediaFields}} } }""", new { id }, null, ct))["Media"];
