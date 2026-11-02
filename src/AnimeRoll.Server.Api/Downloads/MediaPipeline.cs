@@ -257,6 +257,7 @@ public sealed partial class MediaPipeline(AppDb db, AniListClient aniList, IOpti
         var result = new List<(SubtitleTrack, string)>();
         var json = await ProbeAsync(file, "stream=index,codec_name:stream_tags=language,title:stream_disposition=default,forced", "s", ct, "json");
         if (string.IsNullOrWhiteSpace(json)) return result;
+        await ExtractFontsAsync(file, outDir, ct);
         var streams = JsonNode.Parse(json)?["streams"]?.AsArray() ?? [];
         foreach (var st in streams)
         {
@@ -268,10 +269,54 @@ public sealed partial class MediaPipeline(AppDb db, AniListClient aniList, IOpti
             var isDefault = st["disposition"]?["default"]?.GetValue<int>() == 1;
             var isForced = st["disposition"]?["forced"]?.GetValue<int>() == 1;
             var path = Path.Combine(outDir, $"s{index}.vtt");
-            if (await RunAsync(_o.FfmpegPath, ["-y", "-i", file, "-map", $"0:{index}", "-c:s", "webvtt", path], ct) && File.Exists(path))
+            var done = false;
+            if (codec is "ass" or "ssa")
+            {
+                // Own conversion keeps position, colors and styling that ffmpeg's WebVTT writer drops.
+                var assPath = Path.Combine(outDir, $"s{index}.ass");
+                try
+                {
+                    if (await RunAsync(_o.FfmpegPath, ["-y", "-i", file, "-map", $"0:{index}", "-c:s", "ass", assPath], ct) && File.Exists(assPath))
+                    {
+                        // Keep the original (named like the VTT) for libass; MoveNextTo files it next to the episode.
+                        File.Copy(assPath, Path.ChangeExtension(path, ".ass"), overwrite: true);
+                        await File.WriteAllTextAsync(path, AssSubtitles.ToWebVtt(await File.ReadAllTextAsync(assPath, ct)), ct);
+                        done = true;
+                    }
+                }
+                catch (Exception e) when (e is not OperationCanceledException) { log.LogWarning(e, "Conversione ASS non riuscita, uso ffmpeg"); }
+                finally { try { File.Delete(assPath); } catch { /* best effort */ } }
+            }
+            if (!done) done = await RunAsync(_o.FfmpegPath, ["-y", "-i", file, "-map", $"0:{index}", "-c:s", "webvtt", path], ct);
+            if (done && File.Exists(path))
                 result.Add((new SubtitleTrack(index, Path.GetFileName(path), lang is "und" ? null : lang, title, isDefault, isForced), path));
         }
         return result;
+    }
+
+    /// Fonts attached to the MKV (the ASS styles name them) → outDir/fonts. Best effort: only ASS tracks use them.
+    private async Task ExtractFontsAsync(string file, string outDir, CancellationToken ct)
+    {
+        var json = await ProbeAsync(file, "stream=index,codec_name:stream_tags=filename,mimetype", "t", ct, "json");
+        if (string.IsNullOrWhiteSpace(json)) return;
+        var streams = JsonNode.Parse(json)?["streams"]?.AsArray();
+        if (streams is null || streams.Count == 0) return;
+        var dir = Path.Combine(outDir, "fonts");
+        var args = new List<string> { "-y" };
+        var n = 0;
+        for (var i = 0; i < streams.Count; i++)
+        {
+            var name = streams[i]?["tags"]?["filename"]?.GetValue<string>();
+            if (name is null || !new[] { ".ttf", ".otf", ".ttc", ".woff", ".woff2" }.Contains(Path.GetExtension(name).ToLowerInvariant())) continue;
+            Directory.CreateDirectory(dir);
+            args.AddRange([$"-dump_attachment:t:{i}", Path.Combine(dir, Path.GetFileName(name))]);
+            n++;
+        }
+        if (n == 0) return;
+        // ffmpeg insists on an output; it exits with an error after dumping, which is fine.
+        args.AddRange(["-i", file, "-f", "null", "-t", "0", "-"]);
+        try { await RunAsync(_o.FfmpegPath, [.. args], ct); }
+        catch (Exception e) when (e is not OperationCanceledException) { log.LogDebug(e, "Font non estratti"); }
     }
 
     /// True when the top-level 'moov' box comes before 'mdat' (reads only box headers).

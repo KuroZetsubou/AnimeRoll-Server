@@ -7,9 +7,11 @@ using Microsoft.Extensions.Options;
 
 namespace AnimeRoll.Server.Api.Library;
 
-/// One subtitle track stored as a WebVTT file next to the episode.
+/// One subtitle track stored as a WebVTT file next to the episode (plus the original ASS when the source had one:
+/// the apps with a libass renderer use it for the full look).
 /// <param name="File">File name only, in the same folder as the MP4.</param>
-public sealed record SubtitleTrack(int Index, string File, string? Language, string? Title, bool IsDefault, bool IsForced)
+/// <param name="AssFile">Original ASS/SSA, same folder; null when the track was not ASS.</param>
+public sealed record SubtitleTrack(int Index, string File, string? Language, string? Title, bool IsDefault, bool IsForced, string? AssFile = null)
 {
     /// "Signs & Songs" style tracks only carry on-screen text: never auto-select them over a full track.
     public bool IsSignsOnly =>
@@ -65,11 +67,29 @@ public static class SubtitleFiles
         {
             var name = $"{baseName}.s{track.Index}.{track.Language ?? "und"}.vtt";
             File.Move(temp, Path.Combine(folder, name), overwrite: true);
-            result.Add(track with { File = name });
+            string? assName = null;
+            var tempAss = Path.ChangeExtension(temp, ".ass");
+            if (File.Exists(tempAss))
+            {
+                assName = Path.ChangeExtension(name, ".ass");
+                File.Move(tempAss, Path.Combine(folder, assName), overwrite: true);
+            }
+            result.Add(track with { File = name, AssFile = assName });
+        }
+        // Fonts embedded in the source (MKV attachments) travel with the ASS tracks.
+        var tempFonts = Path.Combine(Path.GetDirectoryName(extracted.FirstOrDefault().TempPath ?? "") ?? "", "fonts");
+        if (result.Any(t => t.AssFile != null) && Directory.Exists(tempFonts))
+        {
+            var dest = FontsDir(mp4);
+            Directory.CreateDirectory(dest);
+            foreach (var f in Directory.GetFiles(tempFonts)) File.Move(f, Path.Combine(dest, Path.GetFileName(f)), overwrite: true);
         }
         Save(mp4, result);
         return result;
     }
+
+    /// "<episode>.fonts/" next to the MP4.
+    public static string FontsDir(string mp4) => Path.Combine(Path.GetDirectoryName(mp4)!, Path.GetFileNameWithoutExtension(mp4) + ".fonts");
 
     public static void DeleteFor(string mp4)
     {
@@ -77,7 +97,9 @@ public static class SubtitleFiles
         {
             var p = Path.Combine(Path.GetDirectoryName(mp4)!, t.File);
             if (File.Exists(p)) File.Delete(p);
+            if (t.AssFile is { } a && File.Exists(Path.Combine(Path.GetDirectoryName(mp4)!, a))) File.Delete(Path.Combine(Path.GetDirectoryName(mp4)!, a));
         }
+        if (Directory.Exists(FontsDir(mp4))) Directory.Delete(FontsDir(mp4), true);
         if (File.Exists(IndexPath(mp4))) File.Delete(IndexPath(mp4));
     }
 }

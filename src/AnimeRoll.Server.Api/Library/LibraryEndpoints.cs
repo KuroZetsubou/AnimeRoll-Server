@@ -27,9 +27,9 @@ public sealed record HomeDto(
 
 public sealed record ProgressRequest(double PositionSeconds, double? DurationSeconds);
 
-public sealed record SubtitleInfo(int Index, string? Language, string Label, bool IsDefault, bool IsForced, bool IsSignsOnly, string Url);
+public sealed record SubtitleInfo(int Index, string? Language, string Label, bool IsDefault, bool IsForced, bool IsSignsOnly, string Url, string? AssUrl = null);
 
-public sealed record StreamInfo(string Url, string DownloadUrl, double? DurationSeconds, double? ResumeAt, List<SubtitleInfo> Subtitles);
+public sealed record StreamInfo(string Url, string DownloadUrl, double? DurationSeconds, double? ResumeAt, List<SubtitleInfo> Subtitles, List<string>? Fonts = null);
 
 public static class LibraryEndpoints
 {
@@ -106,14 +106,20 @@ public static class LibraryEndpoints
             var p = await db.WatchProgress.FirstOrDefaultAsync(w => w.UserId == uid && w.EpisodeId == id);
             var token = Uri.EscapeDataString(tokens.CreateStreamToken(uid, id));
             var baseUrl = o.Value.PublicBaseUrl.TrimEnd('/');
-            var subs = (SubtitleFiles.Load(Path.Combine(o.Value.MediaPath, ep.FilePath)) ?? [])
+            var mp4Path = Path.Combine(o.Value.MediaPath, ep.FilePath);
+            var subs = (SubtitleFiles.Load(mp4Path) ?? [])
                 .Select(s => new SubtitleInfo(s.Index, s.Language, s.Label, s.IsDefault, s.IsForced, s.IsSignsOnly,
-                    $"{baseUrl}/media/episodes/{id}/subtitles/{s.Index}.vtt?t={token}"))
+                    $"{baseUrl}/media/episodes/{id}/subtitles/{s.Index}.vtt?t={token}",
+                    s.AssFile is null ? null : $"{baseUrl}/media/episodes/{id}/subtitles/{s.Index}.ass?t={token}"))
                 .ToList();
+            var fontsDir = SubtitleFiles.FontsDir(mp4Path);
+            var fonts = Directory.Exists(fontsDir)
+                ? Directory.GetFiles(fontsDir).Select(f => $"{baseUrl}/media/episodes/{id}/fonts/{Uri.EscapeDataString(Path.GetFileName(f))}?t={token}").ToList()
+                : [];
             return Results.Ok(new StreamInfo(
                 $"{baseUrl}/media/episodes/{id}?t={token}",
                 $"{baseUrl}/media/episodes/{id}?t={token}&download=1",
-                ep.DurationSeconds, p is { Completed: false } ? p.PositionSeconds : null, subs));
+                ep.DurationSeconds, p is { Completed: false } ? p.PositionSeconds : null, subs, fonts));
         });
 
         g.MapPut("/episodes/{id:int}/progress", async (int id, ProgressRequest req, HttpContext ctx, AppDb db, AniListClient al,
@@ -279,6 +285,36 @@ public static class LibraryEndpoints
             if (track is null) return Results.NotFound();
             var path = Path.Combine(Path.GetDirectoryName(mp4)!, Path.GetFileName(track.File));
             return File.Exists(path) ? Results.File(path, "text/vtt; charset=utf-8") : Results.NotFound();
+        }).WithTags("Media");
+
+        // Original ASS and the fonts embedded in the source, for the libass renderers.
+        app.MapGet("/media/episodes/{id:int}/subtitles/{index:int}.ass", async (int id, int index, string? t, string? embed, AppDb db, TokenService tokens,
+            IOptions<AnimeRollOptions> o) =>
+        {
+            if (tokens.ValidateStreamToken(t, id) is null) return Results.Unauthorized();
+            var ep = await db.Episodes.FindAsync(id);
+            if (ep is null) return Results.NotFound();
+            var mp4 = Path.GetFullPath(Path.Combine(o.Value.MediaPath, ep.FilePath));
+            var track = SubtitleFiles.Load(mp4)?.FirstOrDefault(s => s.Index == index);
+            if (track?.AssFile is null) return Results.NotFound();
+            var path = Path.Combine(Path.GetDirectoryName(mp4)!, Path.GetFileName(track.AssFile));
+            if (!File.Exists(path)) return Results.NotFound();
+            // embed=1: fonts inside the file, for players that load nothing else (ExoPlayer, AVPlayer-side libass).
+            var fontsDir = SubtitleFiles.FontsDir(mp4);
+            if (embed == "1" && Directory.Exists(fontsDir))
+                return Results.Text(AssSubtitles.WithFonts(await File.ReadAllTextAsync(path), Directory.GetFiles(fontsDir)), "text/x-ssa; charset=utf-8");
+            return Results.File(path, "text/x-ssa; charset=utf-8");
+        }).WithTags("Media");
+
+        app.MapGet("/media/episodes/{id:int}/fonts/{name}", async (int id, string name, string? t, AppDb db, TokenService tokens,
+            IOptions<AnimeRollOptions> o) =>
+        {
+            if (tokens.ValidateStreamToken(t, id) is null) return Results.Unauthorized();
+            var ep = await db.Episodes.FindAsync(id);
+            if (ep is null) return Results.NotFound();
+            var mp4 = Path.GetFullPath(Path.Combine(o.Value.MediaPath, ep.FilePath));
+            var path = Path.Combine(SubtitleFiles.FontsDir(mp4), Path.GetFileName(name));
+            return File.Exists(path) ? Results.File(path, "application/octet-stream") : Results.NotFound();
         }).WithTags("Media");
     }
 }
