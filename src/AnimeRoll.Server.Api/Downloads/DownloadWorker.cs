@@ -121,7 +121,17 @@ public sealed class DownloadWorker(DownloadQueue queue, IServiceScopeFactory sco
         Directory.CreateDirectory(workDir);
         try
         {
-            if (job.Source == RepairJob.Source)
+            if (job.Source == SubtitleRefresh.Source)
+            {
+                job.Status = DownloadStatus.PostProcessing; job.Message = "Scarico i sottotitoli…"; job.Progress = 0.1;
+                await db.SaveChangesAsync(ct);
+                job.Message = await SubtitleRefresh.RunAsync(scope.ServiceProvider, job.SourceRef, workDir, ct);
+                job.Status = DownloadStatus.Completed; job.Progress = 1;
+                job.EpisodeId = int.Parse(job.SourceRef.Split('|')[0]);
+                // Crunchyroll limits playback requests: a short pause between episodes.
+                await Task.Delay(TimeSpan.FromSeconds(3), ct);
+            }
+            else if (job.Source == RepairJob.Source)
             {
                 // "Ripara episodio" requested from a client: same pipeline as a new download, on the file already in the library.
                 job.Status = DownloadStatus.PostProcessing; job.Message = "Riparazione in corso…"; job.Progress = 0.1;

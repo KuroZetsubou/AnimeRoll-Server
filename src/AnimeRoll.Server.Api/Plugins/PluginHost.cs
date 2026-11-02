@@ -171,9 +171,10 @@ public sealed class PluginSourceProvider(ISourcePlugin plugin, PluginInfo info, 
     public bool CanSearch => info.Capabilities.HasFlag(PluginCapabilities.Search);
     public bool CanListEpisodes => info.Capabilities.HasFlag(PluginCapabilities.Episodes);
     public bool CanStream => info.Capabilities.HasFlag(PluginCapabilities.Stream);
+    public bool CanSubtitles => info.Capabilities.HasFlag(PluginCapabilities.Subtitles);
     public string? Hint => initError is null ? info.Hint : $"Non disponibile: {initError}";
 
-    public ProviderInfo Info => new(Id, Name, Enabled, CanSearch, CanListEpisodes, CanStream, Hint, info.RefPattern, IsPlugin: true);
+    public ProviderInfo Info => new(Id, Name, Enabled, CanSearch, CanListEpisodes, CanStream, Hint, info.RefPattern, IsPlugin: true, CanSubtitles: CanSubtitles);
 
     public async Task<IReadOnlyList<SourceSearchResult>> SearchAsync(string query, CancellationToken ct) =>
         (await plugin.SearchAsync(query, ct)).Select(r => new SourceSearchResult(r.Ref, r.Title, r.PosterUrl, r.Subtitle, r.AniListId,
@@ -188,6 +189,9 @@ public sealed class PluginSourceProvider(ISourcePlugin plugin, PluginInfo info, 
         }).ToList();
 
     public Task<string?> ResolveStreamUrlAsync(string episodeRef, CancellationToken ct) => plugin.ResolveStreamUrlAsync(episodeRef, ct);
+
+    public Task<IReadOnlyList<PluginSubtitle>> FetchSubtitlesAsync(string episodeRef, string outputDirectory, CancellationToken ct) =>
+        plugin.FetchSubtitlesAsync(episodeRef, outputDirectory, ct);
 
     public async Task<IReadOnlyList<string>> DownloadAsync(DownloadContext ctx, CancellationToken ct)
     {

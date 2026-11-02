@@ -88,6 +88,32 @@ public static class SubtitleFiles
         return result;
     }
 
+    /// Moves the sidecars (subtitle files, ASS originals, fonts, index) along with an episode that gets a new path.
+    /// File names follow the MP4's name, so they are renamed and the index is rewritten.
+    public static void MoveEpisode(string oldMp4, string newMp4)
+    {
+        var tracks = Load(oldMp4);
+        if (tracks is null) return;
+        var oldBase = Path.GetFileNameWithoutExtension(oldMp4);
+        var newBase = Path.GetFileNameWithoutExtension(newMp4);
+        var oldDir = Path.GetDirectoryName(oldMp4)!;
+        var newDir = Path.GetDirectoryName(newMp4)!;
+        Directory.CreateDirectory(newDir);
+        string Rename(string name) => name.StartsWith(oldBase, StringComparison.Ordinal) ? newBase + name[oldBase.Length..] : name;
+        var moved = new List<SubtitleTrack>();
+        foreach (var t in tracks)
+        {
+            var file = Rename(t.File);
+            var ass = t.AssFile is null ? null : Rename(t.AssFile);
+            if (File.Exists(Path.Combine(oldDir, t.File))) File.Move(Path.Combine(oldDir, t.File), Path.Combine(newDir, file), overwrite: true);
+            if (t.AssFile is not null && File.Exists(Path.Combine(oldDir, t.AssFile))) File.Move(Path.Combine(oldDir, t.AssFile), Path.Combine(newDir, ass!), overwrite: true);
+            moved.Add(t with { File = file, AssFile = ass });
+        }
+        if (Directory.Exists(FontsDir(oldMp4))) Directory.Move(FontsDir(oldMp4), FontsDir(newMp4));
+        File.Delete(IndexPath(oldMp4));
+        Save(newMp4, moved);
+    }
+
     /// "<episode>.fonts/" next to the MP4.
     public static string FontsDir(string mp4) => Path.Combine(Path.GetDirectoryName(mp4)!, Path.GetFileNameWithoutExtension(mp4) + ".fonts");
 

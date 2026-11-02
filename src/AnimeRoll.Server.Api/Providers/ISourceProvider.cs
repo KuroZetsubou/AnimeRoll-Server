@@ -9,7 +9,7 @@ public sealed record SourceSearchResult(
 public sealed record SourceEpisode(string Ref, double? Number, string Title, Dictionary<string, string>? Extra = null);
 
 public sealed record ProviderInfo(string Id, string Name, bool Enabled, bool CanSearch, bool CanListEpisodes, bool CanStream, string? Hint,
-    string? RefPattern = null, bool IsPlugin = false);
+    string? RefPattern = null, bool IsPlugin = false, bool CanSubtitles = false);
 
 /// What a provider gets to run one download job.
 public sealed class DownloadContext(DownloadJob job, string workDir, Func<double, string?, Task> report)
@@ -30,6 +30,8 @@ public interface ISourceProvider
     bool CanSearch => true;
     bool CanListEpisodes => true;
     bool CanStream => false;
+    /// Can fetch just the subtitle files of an episode (see FetchSubtitlesAsync).
+    bool CanSubtitles => false;
     string? Hint => null;
 
     Task<IReadOnlyList<SourceSearchResult>> SearchAsync(string query, CancellationToken ct);
@@ -38,10 +40,14 @@ public interface ISourceProvider
     /// Direct playable URL without downloading (only if CanStream).
     Task<string?> ResolveStreamUrlAsync(string episodeRef, CancellationToken ct) => Task.FromResult<string?>(null);
 
+    /// Subtitle files only, into outputDirectory (only if CanSubtitles).
+    Task<IReadOnlyList<AnimeRoll.Plugins.PluginSubtitle>> FetchSubtitlesAsync(string episodeRef, string outputDirectory, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<AnimeRoll.Plugins.PluginSubtitle>>([]);
+
     /// Downloads into ctx.WorkDir and returns the produced video files.
     Task<IReadOnlyList<string>> DownloadAsync(DownloadContext ctx, CancellationToken ct);
 
-    ProviderInfo Info => new(Id, Name, Enabled, CanSearch, CanListEpisodes, CanStream, Hint);
+    ProviderInfo Info => new(Id, Name, Enabled, CanSearch, CanListEpisodes, CanStream, Hint, null, false, CanSubtitles);
 }
 
 /// Built-in sources + every loaded plugin.

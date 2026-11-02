@@ -52,7 +52,7 @@ public static class AuthEndpoints
             db.Users.Add(user);
             await db.SaveChangesAsync();
             return Results.Ok(new AuthResponse(tokens.CreateAccessToken(user), user.ToDto()));
-        });
+        }).RequireRateLimiting("auth");
 
         g.MapPost("/login", async (PasswordLoginRequest req, AppDb db, TokenService tokens) =>
         {
@@ -63,7 +63,7 @@ public static class AuthEndpoints
                 return Results.Unauthorized();
             }
             return Results.Ok(new AuthResponse(tokens.CreateAccessToken(user), user.ToDto()));
-        });
+        }).RequireRateLimiting("auth");
 
         g.MapGet("/me", async (HttpContext ctx, AppDb db) =>
         {
@@ -151,7 +151,7 @@ public static class AuthEndpoints
             var ceremonyId = Guid.NewGuid().ToString("N");
             cache.Set($"login:{ceremonyId}", options.ToJson(), TimeSpan.FromMinutes(5));
             return Results.Ok(new CeremonyStart(ceremonyId, options));
-        });
+        }).RequireRateLimiting("auth");
 
         g.MapPost("/passkeys/login/finish", async (PasskeyLoginFinish req, AppDb db, IFido2 fido2, IMemoryCache cache, TokenService tokens, CancellationToken ct) =>
         {
@@ -178,6 +178,6 @@ public static class AuthEndpoints
             stored.LastUsedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
             return Results.Ok(new AuthResponse(tokens.CreateAccessToken(stored.User!), stored.User!.ToDto()));
-        });
+        }).RequireRateLimiting("auth");
     }
 }

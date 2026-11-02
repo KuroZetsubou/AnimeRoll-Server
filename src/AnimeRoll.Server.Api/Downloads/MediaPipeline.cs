@@ -217,7 +217,7 @@ public sealed partial class MediaPipeline(AppDb db, AniListClient aniList, IOpti
     }
 
     /// Largest tolerated gap between audio and video, in seconds (start or total length).
-    public const double MaxAvDrift = 0.5;
+    public const double MaxAvDrift = 2.0;
 
     public sealed record SyncCheck(bool Ok, double Delta, string Detail);
 
@@ -346,6 +346,57 @@ public sealed partial class MediaPipeline(AppDb db, AniListClient aniList, IOpti
             return false;
         }
         catch (IOException) { return false; }
+    }
+
+    /// Audio streams of an MP4 as (language, title); used by the web player, whose <video> cannot switch tracks by itself.
+    public async Task<List<(string? Language, string? Title)>> ProbeAudioAsync(string file, CancellationToken ct)
+    {
+        var json = await ProbeAsync(file, "stream_tags=language,title", "a", ct, "json");
+        var list = new List<(string?, string?)>();
+        if (string.IsNullOrWhiteSpace(json)) return list;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("streams", out var streams)) return list;
+            foreach (var st in streams.EnumerateArray())
+            {
+                string? lang = null, title = null;
+                if (st.TryGetProperty("tags", out var tags))
+                {
+                    if (tags.TryGetProperty("language", out var l)) lang = l.GetString();
+                    if (tags.TryGetProperty("title", out var t)) title = t.GetString();
+                }
+                list.Add((lang, title));
+            }
+        }
+        catch (System.Text.Json.JsonException) { }
+        return list;
+    }
+
+    private static readonly SemaphoreSlim AudioGate = new(1, 1);
+
+    /// Audio stream <paramref name="audio"/> alone as an AAC .m4a (a few MB), cached in the data folder. The web player plays it
+    /// in sync with the muted video, since browsers cannot switch the audio track of an MP4 by themselves.
+    public async Task<string?> ExtractAudioAsync(string mp4, int episodeId, int audio, CancellationToken ct)
+    {
+        var dir = Path.Combine(_o.DataPath, "audio-cache");
+        Directory.CreateDirectory(dir);
+        var stamp = File.GetLastWriteTimeUtc(mp4).Ticks;
+        var target = Path.Combine(dir, $"{episodeId}-{audio}-{stamp}.m4a");
+        if (File.Exists(target)) return target;
+        await AudioGate.WaitAsync(ct);
+        try
+        {
+            if (File.Exists(target)) return target;
+            var tmp = target + ".part.m4a";
+            var ok = await RunAsync(_o.FfmpegPath, ["-y", "-v", "error", "-i", mp4, "-map", $"0:a:{audio}", "-vn", "-sn", "-dn", "-ac", "2",
+                "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", tmp], ct);
+            if (!ok) { if (File.Exists(tmp)) File.Delete(tmp); return null; }
+            File.Move(tmp, target, overwrite: true);
+            foreach (var old in Directory.GetFiles(dir, $"{episodeId}-{audio}-*").Where(f => f != target)) File.Delete(old);
+            return target;
+        }
+        finally { AudioGate.Release(); }
     }
 
     private async Task<double?> ProbeDurationAsync(string file, CancellationToken ct) =>

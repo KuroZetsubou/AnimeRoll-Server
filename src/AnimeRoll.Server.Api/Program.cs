@@ -37,6 +37,21 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 builder.Services.AddDbContext<AppDb>(o => o.UseSqlite($"Data Source={Path.Combine(cfg.DataPath, "animeroll.db")}"));
 builder.Services.AddMemoryCache();
 
+// Behind the reverse proxy (see proxy/): the real client address comes from X-Forwarded-For.
+builder.Services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(o =>
+{
+    o.ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto;
+    o.KnownNetworks.Clear(); o.KnownProxies.Clear();
+});
+// Login endpoints are reachable from the internet: slow down password guessing per client address.
+builder.Services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    o.AddPolicy("auth", ctx => System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+        ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+});
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(o =>
 {
     o.MapInboundClaims = false;
@@ -98,6 +113,8 @@ using (var scope = app.Services.CreateScope())
 }
 await app.Services.GetRequiredService<PluginHost>().LoadAsync(CancellationToken.None);
 
+app.UseForwardedHeaders();
+app.UseRateLimiter();
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -125,6 +142,8 @@ app.MapLibrary();
 app.MapMedia();
 app.MapSourcesAndDownloads();
 app.MapRepair();
+app.MapSubtitleRefresh();
+app.MapMoveEpisodes();
 app.MapPlugins();
 
 // Web client (AnimeRoll.Client/Web build) is copied to wwwroot in the Docker image.

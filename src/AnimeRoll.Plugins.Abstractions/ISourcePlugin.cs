@@ -30,6 +30,11 @@ public interface ISourcePlugin
     /// without downloading to the NAS. Return null if not available for this episode.
     Task<string?> ResolveStreamUrlAsync(string episodeRef, CancellationToken ct) => Task.FromResult<string?>(null);
 
+    /// <see cref="PluginCapabilities.Subtitles"/>: download only the subtitle files of one episode into
+    /// <paramref name="outputDirectory"/>. Used to give episodes already in the library their original ASS subtitles.
+    Task<IReadOnlyList<PluginSubtitle>> FetchSubtitlesAsync(string episodeRef, string outputDirectory, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<PluginSubtitle>>([]);
+
     /// Download one item into <see cref="IPluginDownloadContext.OutputDirectory"/> and return the
     /// paths of the video files produced. AnimeRoll then converts them to MP4 if needed, moves them
     /// into the library and links them to AniList. Throw to fail the job (the message is shown).
@@ -44,6 +49,8 @@ public enum PluginCapabilities
     Search = 1,
     Episodes = 2,
     Stream = 4,
+    /// Can fetch the subtitle files of an episode on their own (no video).
+    Subtitles = 8,
 }
 
 /// <param name="Id">Stable lowercase id (letters, digits, '-'). Used in URLs and settings keys.</param>
@@ -74,6 +81,12 @@ public sealed record PluginEpisode(
     string Title,
     int? AniListId = null,
     IReadOnlyDictionary<string, string>? Extra = null);
+
+/// A subtitle file produced by <see cref="ISourcePlugin.FetchSubtitlesAsync"/>.
+/// <param name="Path">Relative to the output folder.</param>
+/// <param name="Language">ISO 639-2 code ("ita", "eng", "jpn").</param>
+/// <param name="Format">"ass", "srt" or "vtt".</param>
+public sealed record PluginSubtitle(string Path, string? Language, string? Title = null, bool Forced = false, bool IsDefault = false, string Format = "ass");
 
 /// What the user asked to download.
 /// <param name="Ref">An episode ref, a search-result ref, or whatever the user pasted.</param>

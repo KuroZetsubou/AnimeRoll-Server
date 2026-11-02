@@ -11,6 +11,9 @@ public sealed record AniListMedia(
     int Id, string Title, string? TitleRomaji, string? Description, string? CoverUrl, string? BannerUrl,
     int? Episodes, int? Year, string? Status, string? Format, List<string> Genres, int? AverageScore, int? NextAiringEpisode);
 
+/// A title linked to another by AniList (prequel, sequel, side story…); Relation is already in Italian.
+public sealed record AniListRelated(string Relation, AniListMedia Media);
+
 public sealed record AniListEntry(AniListMedia Media, string Status, int Progress, double? Score);
 
 /// Thin GraphQL client for https://graphql.anilist.co
@@ -89,6 +92,30 @@ public sealed class AniListClient(HttpClient http, IOptions<AnimeRollOptions> op
             .Select(n => n?["mediaRecommendation"])
             .Where(m => m is not null && m["isAdult"]?.GetValueKind() != JsonValueKind.True)
             .Select(m => ParseMedia(m!))
+            .ToList();
+    }
+
+    private static readonly Dictionary<string, (string Label, int Order)> RelationLabels = new()
+    {
+        ["PREQUEL"] = ("Stagione precedente", 0), ["SEQUEL"] = ("Stagione successiva", 1), ["PARENT"] = ("Serie principale", 2),
+        ["SIDE_STORY"] = ("Storia parallela", 3), ["SPIN_OFF"] = ("Spin-off", 4), ["ALTERNATIVE"] = ("Versione alternativa", 5),
+        ["SUMMARY"] = ("Riassunto", 6), ["CHARACTER"] = ("Stessi personaggi", 7), ["OTHER"] = ("Correlato", 8),
+    };
+
+    /// Other anime AniList links to this one: seasons before/after, side stories, spin-offs. Manga/novel adaptations are left out.
+    public async Task<List<AniListRelated>> RelationsAsync(int id, CancellationToken ct)
+    {
+        var data = await QueryAsync($$"""
+            query($id:Int){ Media(id:$id, type:ANIME){ relations { edges { relationType node { type isAdult {{MediaFields}} } } } } }
+            """, new { id }, null, ct);
+        var edges = data["Media"]?["relations"]?["edges"]?.AsArray();
+        if (edges is null) return [];
+        return edges
+            .Where(e => e?["node"]?["type"]?.ToString() == "ANIME" && e["node"]!["isAdult"]?.GetValueKind() != JsonValueKind.True)
+            .Select(e => (Type: e!["relationType"]?.ToString() ?? "OTHER", Media: ParseMedia(e["node"]!)))
+            .Select(x => (x.Media, Info: RelationLabels.GetValueOrDefault(x.Type, ("Correlato", 9))))
+            .OrderBy(x => x.Info.Item2).ThenBy(x => x.Media.Year ?? 0)
+            .Select(x => new AniListRelated(x.Info.Item1, x.Media))
             .ToList();
     }
 

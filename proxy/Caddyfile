@@ -1,0 +1,36 @@
+# One block per exposed service. DuckDNS resolves every subdomain of <name>.duckdns.org to your IP.
+{
+	email {$ACME_EMAIL}
+	# Only Let's Encrypt (Caddy would otherwise fall back to ZeroSSL).
+	acme_ca https://acme-v02.api.letsencrypt.org/directory
+}
+
+{$DUCKDNS_NAME}.duckdns.org, *.{$DUCKDNS_NAME}.duckdns.org {
+	tls {
+		dns duckdns {$DUCKDNS_TOKEN}
+	}
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	# AnimeRoll: web client, API, video (Range requests pass through) and /.well-known for the passkeys.
+	@anime host {$DUCKDNS_NAME}.duckdns.org
+	handle @anime {
+		reverse_proxy host.docker.internal:8080 {
+			flush_interval -1        # no buffering: video and large uploads stream straight through
+		}
+	}
+
+	# Next service: copy the block above (e.g. ATS on :8000), then `docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile`.
+	# @ats host ats.{$DUCKDNS_NAME}.duckdns.org
+	# handle @ats { reverse_proxy host.docker.internal:8000 }
+
+	handle {
+		respond "Not found" 404
+	}
+}

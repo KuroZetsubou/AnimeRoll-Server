@@ -29,7 +29,8 @@ public sealed record ProgressRequest(double PositionSeconds, double? DurationSec
 
 public sealed record SubtitleInfo(int Index, string? Language, string Label, bool IsDefault, bool IsForced, bool IsSignsOnly, string Url, string? AssUrl = null);
 
-public sealed record StreamInfo(string Url, string DownloadUrl, double? DurationSeconds, double? ResumeAt, List<SubtitleInfo> Subtitles, List<string>? Fonts = null);
+public sealed record StreamInfo(string Url, string DownloadUrl, double? DurationSeconds, double? ResumeAt, List<SubtitleInfo> Subtitles, List<string>? Fonts = null, List<AudioInfo>? AudioTracks = null);
+public sealed record AudioInfo(int Index, string? Language, string Label, string Url);
 
 public static class LibraryEndpoints
 {
@@ -98,7 +99,7 @@ public static class LibraryEndpoints
         });
 
         // Signed URLs usable by AVPlayer / ExoPlayer / <video> and by background downloads on the device.
-        g.MapGet("/episodes/{id:int}/stream", async (int id, HttpContext ctx, AppDb db, TokenService tokens, IOptions<AnimeRollOptions> o) =>
+        g.MapGet("/episodes/{id:int}/stream", async (int id, HttpContext ctx, AppDb db, TokenService tokens, IOptions<AnimeRollOptions> o, MediaPipeline pipeline, CancellationToken ct) =>
         {
             var uid = ctx.User.UserId();
             var ep = await db.Episodes.FindAsync(id);
@@ -116,10 +117,26 @@ public static class LibraryEndpoints
             var fonts = Directory.Exists(fontsDir)
                 ? Directory.GetFiles(fontsDir).Select(f => $"{baseUrl}/media/episodes/{id}/fonts/{Uri.EscapeDataString(Path.GetFileName(f))}?t={token}").ToList()
                 : [];
+            var audioProbe = await pipeline.ProbeAudioAsync(mp4Path, ct);
+            var audio = audioProbe.Count < 2 ? null : audioProbe.Select((a, i) => new AudioInfo(i, a.Language,
+                string.IsNullOrWhiteSpace(a.Title) ? (a.Language?.ToUpperInvariant() ?? $"Traccia {i + 1}") : a.Title!,
+                i == 0 ? $"{baseUrl}/media/episodes/{id}?t={token}" : $"{baseUrl}/media/episodes/{id}/audio/{i}.m4a?t={token}")).ToList();
+            if (audio is { Count: > 1 })
+            {
+                // Extract the other dubs in the background so they are ready by the time someone opens the audio menu.
+                var scopes = ctx.RequestServices.GetRequiredService<IServiceScopeFactory>();
+                var count = audio.Count;
+                _ = Task.Run(async () =>
+                {
+                    using var scope = scopes.CreateScope();
+                    var pl = scope.ServiceProvider.GetRequiredService<MediaPipeline>();
+                    for (var i = 1; i < count; i++) { try { await pl.ExtractAudioAsync(mp4Path, id, i, CancellationToken.None); } catch { /* best effort */ } }
+                });
+            }
             return Results.Ok(new StreamInfo(
                 $"{baseUrl}/media/episodes/{id}?t={token}",
                 $"{baseUrl}/media/episodes/{id}?t={token}&download=1",
-                ep.DurationSeconds, p is { Completed: false } ? p.PositionSeconds : null, subs, fonts));
+                ep.DurationSeconds, p is { Completed: false } ? p.PositionSeconds : null, subs, fonts, audio));
         });
 
         g.MapPut("/episodes/{id:int}/progress", async (int id, ProgressRequest req, HttpContext ctx, AppDb db, AniListClient al,
@@ -272,6 +289,30 @@ public static class LibraryEndpoints
             if (!path.StartsWith(Path.GetFullPath(o.Value.MediaPath)) || !File.Exists(path)) return Results.NotFound();
             return Results.File(path, "video/mp4",
                 fileDownloadName: download is "1" or "true" ? Path.GetFileName(path) : null, enableRangeProcessing: true);
+        }).WithTags("Media");
+
+        // Waits until the remuxed copy exists, so the player can show progress instead of a stalled video.
+        app.MapGet("/media/episodes/{id:int}/audio/{index:int}/ready", async (int id, int index, string? t, AppDb db, TokenService tokens,
+            IOptions<AnimeRollOptions> o, MediaPipeline pipeline, CancellationToken ct) =>
+        {
+            if (tokens.ValidateStreamToken(t, id) is null) return Results.Unauthorized();
+            var ep = await db.Episodes.FindAsync(id);
+            if (ep is null) return Results.NotFound();
+            var path = Path.GetFullPath(Path.Combine(o.Value.MediaPath, ep.FilePath));
+            if (!path.StartsWith(Path.GetFullPath(o.Value.MediaPath)) || !File.Exists(path)) return Results.NotFound();
+            return await pipeline.ExtractAudioAsync(path, id, index, ct) is null ? Results.NotFound() : Results.NoContent();
+        }).WithTags("Media");
+
+        app.MapGet("/media/episodes/{id:int}/audio/{index:int}.m4a", async (int id, int index, string? t, AppDb db, TokenService tokens,
+            IOptions<AnimeRollOptions> o, MediaPipeline pipeline, CancellationToken ct) =>
+        {
+            if (tokens.ValidateStreamToken(t, id) is null) return Results.Unauthorized();
+            var ep = await db.Episodes.FindAsync(id);
+            if (ep is null) return Results.NotFound();
+            var path = Path.GetFullPath(Path.Combine(o.Value.MediaPath, ep.FilePath));
+            if (!path.StartsWith(Path.GetFullPath(o.Value.MediaPath)) || !File.Exists(path)) return Results.NotFound();
+            var remuxed = await pipeline.ExtractAudioAsync(path, id, index, ct);
+            return remuxed is null ? Results.NotFound() : Results.File(remuxed, "audio/mp4", enableRangeProcessing: true);
         }).WithTags("Media");
 
         app.MapGet("/media/episodes/{id:int}/subtitles/{index:int}.vtt", async (int id, int index, string? t, AppDb db, TokenService tokens,

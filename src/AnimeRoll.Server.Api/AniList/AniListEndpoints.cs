@@ -55,6 +55,7 @@ public static class AniListEndpoints
             return Results.Ok(await al.BrowseAsync(s, year, genre, ct));
         }).RequireAuthorization();
         g.MapGet("/media/{id:int}/recommendations", (int id, AniListClient al, CancellationToken ct) => al.RecommendationsAsync(id, ct)).RequireAuthorization();
+        g.MapGet("/media/{id:int}/relations", (int id, AniListClient al, CancellationToken ct) => al.RelationsAsync(id, ct)).RequireAuthorization();
         g.MapGet("/media/{id:int}", async (int id, AniListClient al, CancellationToken ct) =>
             await al.MediaAsync(id, ct) is { } m ? Results.Ok(m) : Results.NotFound()).RequireAuthorization();
 

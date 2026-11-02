@@ -1,0 +1,54 @@
+# Reverse proxy shared by every service you expose on the NAS (AnimeRoll, ATS, …).
+#   cp .env.example .env   (fill DUCKDNS_TOKEN and DUCKDNS_NAME)
+#   docker compose up -d --build
+# Router: forward external TCP 443 → NAS port 18443 (and 80 → 18080, only for the HTTP→HTTPS redirect).
+services:
+  duckdns:
+    # Keeps <DUCKDNS_NAME>.duckdns.org pointing at your current public IP.
+    image: lscr.io/linuxserver/duckdns:latest
+    container_name: duckdns
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=Europe/Rome
+      - SUBDOMAINS=${DUCKDNS_NAME}
+      - TOKEN=${DUCKDNS_TOKEN}
+      - UPDATE_IP=ipv4          # set "ipv4&ipv6" only if the router forwards IPv6 too
+      - LOG_FILE=false
+    volumes:
+      - ${PROXY_DATA:-/volume1/docker/proxy}/duckdns:/config
+
+  caddy:
+    build: .
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      # 80/443 are taken by the NAS web interface: the router forwards external 443 → NAS 18443 (and 80 → 18080).
+      - "18080:80"
+      - "18443:443"
+      - "18443:443/udp"
+    environment:
+      - DUCKDNS_TOKEN=${DUCKDNS_TOKEN}
+      - DUCKDNS_NAME=${DUCKDNS_NAME}
+      - ACME_EMAIL=${ACME_EMAIL}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${PROXY_DATA:-/volume1/docker/proxy}/caddy-data:/data      # certificates: keep them
+      - ${PROXY_DATA:-/volume1/docker/proxy}/caddy-config:/config
+
+  # Cloudflare Tunnel: outbound connection to Cloudflare, so the public domain works on the standard 443 with no router rule.
+  # Needed for passkeys (Apple and Google fetch the domain's verification files on 443). Public hostnames are set in the
+  # Cloudflare dashboard (Zero Trust → Networks → Tunnels), e.g. anime.<your-domain> → http://host.docker.internal:8080
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    profiles: ["tunnel"]

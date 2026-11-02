@@ -53,6 +53,10 @@ public sealed class ScriptPlugin : ISourcePlugin
     public async Task<IReadOnlyList<PluginEpisode>> GetEpisodesAsync(string seriesRef, CancellationToken ct) =>
         Deserialize<List<PluginEpisode>>(await RunAsync("episodes", new JsonObject { ["ref"] = seriesRef }, null, TimeSpan.FromSeconds(60), ct)) ?? [];
 
+    public async Task<IReadOnlyList<PluginSubtitle>> FetchSubtitlesAsync(string episodeRef, string outputDirectory, CancellationToken ct) =>
+        Deserialize<List<PluginSubtitle>>(await RunAsync("subtitles", new JsonObject { ["ref"] = episodeRef, ["outputDirectory"] = outputDirectory },
+            null, TimeSpan.FromSeconds(90), ct)) ?? [];
+
     public async Task<string?> ResolveStreamUrlAsync(string episodeRef, CancellationToken ct) =>
         (await RunAsync("stream", new JsonObject { ["ref"] = episodeRef }, null, TimeSpan.FromSeconds(60), ct))?.GetValue<string>();
 
