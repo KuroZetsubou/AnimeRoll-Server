@@ -9,7 +9,7 @@ namespace AnimeRoll.Server.Api.AniList;
 
 public sealed record AniListMedia(
     int Id, string Title, string? TitleRomaji, string? Description, string? CoverUrl, string? BannerUrl,
-    int? Episodes, int? Year, string? Status, string? Format, List<string> Genres, int? AverageScore, int? NextAiringEpisode);
+    int? Episodes, int? Year, string? Status, string? Format, List<string> Genres, int? AverageScore, int? NextAiringEpisode, long? NextAiringAt = null);
 
 /// A title linked to another by AniList (prequel, sequel, side story…); Relation is already in Italian.
 public sealed record AniListRelated(string Relation, AniListMedia Media);
@@ -27,7 +27,7 @@ public sealed class AniListClient(HttpClient http, IOptions<AnimeRollOptions> op
         title { english romaji userPreferred }
         coverImage { extraLarge large }
         bannerImage
-        nextAiringEpisode { episode }
+        nextAiringEpisode { episode airingAt }
         """;
 
     public string AuthorizeUrl(string redirectUri, string state) =>
@@ -202,6 +202,7 @@ public sealed class AniListClient(HttpClient http, IOptions<AnimeRollOptions> op
             S(m["format"]),
             m["genres"]?.AsArray().Select(g => g!.GetValue<string>()).ToList() ?? [],
             I(m["averageScore"]),
-            I(m["nextAiringEpisode"]?["episode"]));
+            I(m["nextAiringEpisode"]?["episode"]),
+            m["nextAiringEpisode"]?["airingAt"] is { } at && at.GetValueKind() == JsonValueKind.Number ? at.GetValue<long>() : null);
     }
 }
