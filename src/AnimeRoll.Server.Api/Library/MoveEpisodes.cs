@@ -36,10 +36,10 @@ public static class MoveEpisodes
             // Refuse before touching any file: same number twice in the target, or a clash with an episode already there.
             var newNumbers = episodes.ToDictionary(e => e.Id, e => e.Number + req.NumberOffset);
             if (newNumbers.Values.Any(n => n <= 0 && n != 0 && n < 0)) return Results.BadRequest(new { error = "Il numero risultante non può essere negativo." });
-            if (newNumbers.Values.GroupBy(n => n).Any(x => x.Count() > 1))
+            if (episodes.GroupBy(e => (e.IsExtra, newNumbers[e.Id])).Any(x => x.Count() > 1))
                 return Results.Conflict(new { error = "Due episodi finirebbero con lo stesso numero: usa un altro scostamento." });
-            var existing = await db.Episodes.Where(e => e.SeriesId == target.Id && !req.EpisodeIds.Contains(e.Id)).Select(e => e.Number).ToListAsync(ct);
-            var clash = newNumbers.Values.Where(n => existing.Any(x => Math.Abs(x - n) < 0.001)).ToList();
+            var existing = await db.Episodes.Where(e => e.SeriesId == target.Id && !req.EpisodeIds.Contains(e.Id)).Select(e => new { e.Number, e.IsExtra }).ToListAsync(ct);
+            var clash = episodes.Where(e => existing.Any(x => x.IsExtra == e.IsExtra && Math.Abs(x.Number - newNumbers[e.Id]) < 0.001)).Select(e => newNumbers[e.Id]).ToList();
             if (clash.Count > 0)
                 return Results.Conflict(new { error = $"La serie di destinazione ha già gli episodi: {string.Join(", ", clash.Select(n => n.ToString("0.##", CultureInfo.InvariantCulture)))}." });
 
@@ -50,7 +50,7 @@ public static class MoveEpisodes
             {
                 var number = newNumbers[ep.Id];
                 var oldPath = Path.Combine(o.Value.MediaPath, ep.FilePath);
-                var newName = $"{MediaPipeline.Safe(target.Title)} - E{number.ToString("00.##", CultureInfo.InvariantCulture)}.mp4";
+                var newName = EditEpisode.FileName(target.Title, number, ep.IsExtra);
                 var newPath = Path.Combine(folder, newName);
                 if (File.Exists(oldPath))
                 {

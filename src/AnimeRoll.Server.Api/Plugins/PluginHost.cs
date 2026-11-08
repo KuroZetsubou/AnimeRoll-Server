@@ -112,7 +112,7 @@ public sealed class PluginHost(IOptions<AnimeRollOptions> options, IHttpClientFa
         _status.Add(new PluginStatus(info.Id, info.Name, folder, manifest.Type, info.Version, error is null, error));
     }
 
-    private static readonly HashSet<string> BuiltInIds = new(StringComparer.OrdinalIgnoreCase) { "streamsite", "torrent", "telegram", "local" };
+    private static readonly HashSet<string> BuiltInIds = new(StringComparer.OrdinalIgnoreCase) { "telegram", "local" };
 
     private void Fail(string id, string folder, string type, string error)
     {
@@ -184,7 +184,7 @@ public sealed class PluginSourceProvider(ISourcePlugin plugin, PluginInfo info, 
         (await plugin.GetEpisodesAsync(seriesRef, ct)).Select(e =>
         {
             var extra = e.Extra?.ToDictionary() ?? [];
-            if (e.AniListId is { } id) extra["anilistId"] = id.ToString(); // same key StreamSite uses
+            if (e.AniListId is { } id) extra["anilistId"] = id.ToString(); // same key the built-in sources use
             return new SourceEpisode(e.Ref, e.Number, e.Title, extra.Count > 0 ? extra : null);
         }).ToList();
 

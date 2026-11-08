@@ -29,7 +29,7 @@ public static class SubtitleRefresh
                 return Results.BadRequest(new { error = "Questa fonte non può scaricare solo i sottotitoli." });
             var series = await db.Series.FindAsync([id], ct);
             if (series is null) return Results.NotFound();
-            var eps = await db.Episodes.Where(e => e.SeriesId == id).OrderBy(e => e.Number).ToListAsync(ct);
+            var eps = await db.Episodes.Where(e => e.SeriesId == id && !e.IsExtra).OrderBy(e => e.Number).ToListAsync(ct);
             var remote = await provider.EpisodesAsync(req.SeriesRef, ct);
 
             var jobs = new List<DownloadJob>();

@@ -14,7 +14,7 @@ public sealed record SeriesDto(int Id, int? AniListId, string Title, string? Tit
     string? BannerUrl, int? TotalEpisodes, string? Genres, int? Year, int EpisodeCount, DateTime UpdatedAt);
 
 public sealed record EpisodeDto(int Id, int SeriesId, double Number, string? Title, long SizeBytes, double? DurationSeconds,
-    string Source, double? PositionSeconds, bool Completed);
+    string Source, double? PositionSeconds, bool Completed, bool IsExtra = false);
 
 public sealed record ContinueWatchingDto(SeriesDto Series, EpisodeDto Episode);
 
@@ -41,7 +41,7 @@ public static class LibraryEndpoints
         new(s.Id, s.AniListId, s.Title, s.TitleRomaji, s.Description, s.PosterUrl, s.BannerUrl, s.TotalEpisodes, s.Genres, s.Year, count, s.UpdatedAt);
 
     private static EpisodeDto ToDto(Episode e, WatchProgress? p) =>
-        new(e.Id, e.SeriesId, e.Number, e.Title, e.SizeBytes, e.DurationSeconds, e.Source, p?.PositionSeconds, p?.Completed ?? false);
+        new(e.Id, e.SeriesId, e.Number, e.Title, e.SizeBytes, e.DurationSeconds, e.Source, p?.PositionSeconds, p?.Completed ?? false, e.IsExtra);
 
     public static void MapLibrary(this IEndpointRouteBuilder app)
     {
@@ -92,7 +92,7 @@ public static class LibraryEndpoints
         g.MapGet("/series/{id:int}/episodes", async (int id, HttpContext ctx, AppDb db) =>
         {
             var uid = ctx.User.UserId();
-            var eps = await db.Episodes.Where(e => e.SeriesId == id).OrderBy(e => e.Number).ToListAsync();
+            var eps = await db.Episodes.Where(e => e.SeriesId == id).OrderBy(e => e.IsExtra).ThenBy(e => e.Number).ToListAsync();
             var ids = eps.Select(e => e.Id).ToList();
             var prog = await db.WatchProgress.Where(w => w.UserId == uid && ids.Contains(w.EpisodeId)).ToDictionaryAsync(w => w.EpisodeId);
             return eps.Select(e => ToDto(e, prog.GetValueOrDefault(e.Id)));
@@ -158,7 +158,7 @@ public static class LibraryEndpoints
             if (p.DurationSeconds > 0 && req.PositionSeconds / p.DurationSeconds >= CompletedThreshold) p.Completed = true;
 
             var syncedNow = false;
-            if (p.Completed && !p.SyncedToAniList && ep.Series!.AniListId is { } mediaId)
+            if (p.Completed && !p.SyncedToAniList && !ep.IsExtra && ep.Series!.AniListId is { } mediaId)
             {
                 var user = await db.Users.FirstAsync(u => u.Id == uid, ct);
                 if (user.AniListToken != null)

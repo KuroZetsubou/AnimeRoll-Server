@@ -32,7 +32,6 @@ public sealed class AnimeRollOptions
     public QBittorrentOptions QBittorrent { get; set; } = new();
     public TelegramOptions Telegram { get; set; } = new();
     public PluginOptions Plugins { get; set; } = new();
-    public StreamSiteOptions StreamSite { get; set; } = new();
     public AppleOptions Apple { get; set; } = new();
     public AndroidOptions Android { get; set; } = new();
 }
@@ -86,11 +85,6 @@ public sealed class PluginOptions
     public string Directory { get; set; } = "/plugins";
     /// Per-plugin settings: Settings[pluginId][key]. Env: AnimeRoll__Plugins__Settings__<id>__<key>.
     public Dictionary<string, Dictionary<string, string>> Settings { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-}
-
-public sealed class StreamSiteOptions
-{
-    public string BaseUrl { get; set; } = "https://www.streamsite.ac";
 }
 
 public sealed class AppleOptions

@@ -51,6 +51,8 @@ public sealed class Episode
     public int SeriesId { get; set; }
     public Series? Series { get; set; }
     public double Number { get; set; }
+    /// Bonus content ("EX1"): never counted for AniList progress.
+    public bool IsExtra { get; set; }
     public string? Title { get; set; }
     /// Path relative to MediaPath.
     public required string FilePath { get; set; }
@@ -80,7 +82,7 @@ public sealed class DownloadJob
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid RequestedBy { get; set; }
-    /// Provider id: streamsite, torrent, telegram, crunchyroll.
+    /// Provider id: telegram, local or a plugin id.
     public required string Source { get; set; }
     /// Provider-specific reference (episode short id, magnet, message id, url...).
     public required string SourceRef { get; set; }

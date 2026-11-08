@@ -40,7 +40,7 @@ Android: tab simili (Home, Cerca, Libreria, Download, Profilo/logout). Su iPad e
 - Per episodio: scarica sul dispositivo (freccia), annulla, "Rimuovi dal dispositivo"; menu "Scarica tutti sul dispositivo"; menu stato AniList; "Altri episodi".
 
 ### Fonti ("Trova episodi", sheet)
-- Selettore fonte (StreamSite, Torrent, Telegram, plugin installati).
+- Selettore fonte (Telegram, plugin installati).
 - Campo ricerca → "Risultati" → episodi della fonte con selezione (Tutti/Nessuno).
 - Campo "Link o riferimento" manuale, numero episodio facoltativo.
 - Azioni: **Scarica sul NAS (N)**, oppure guarda subito in streaming. Messaggio di conferma "Inviati N download al NAS".

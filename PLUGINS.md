@@ -1,7 +1,7 @@
 # Plugin di AnimeRoll
 
-Un plugin aggiunge una **fonte** ad AnimeRoll senza modificare il server. Nelle app compare accanto ad
-StreamSite, Torrent e Telegram: ricerca, lista episodi, streaming diretto e “Scarica sul NAS”, in base a
+Un plugin aggiunge una **fonte** ad AnimeRoll senza modificare il server. Nelle app compare accanto alle
+fonti incluse (Telegram): ricerca, lista episodi, streaming diretto e “Scarica sul NAS”, in base a
 cosa implementi. Al resto pensa AnimeRoll: coda dei download, avanzamento nelle app, conversione in MP4,
 spostamento in libreria e collegamento ad AniList.
 

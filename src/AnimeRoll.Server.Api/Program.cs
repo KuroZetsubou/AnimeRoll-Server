@@ -74,23 +74,14 @@ builder.Services.AddFido2(o =>
 
 builder.Services.AddSingleton<TokenService>();
 
-const string BrowserUa = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
 builder.Services.AddHttpClient<AniListClient>();
-builder.Services.AddHttpClient<StreamSiteProvider>(c =>
-{
-    c.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUa);
-    c.DefaultRequestHeaders.AcceptLanguage.ParseAdd("it-IT,it;q=0.9,en;q=0.8");
-    c.Timeout = Timeout.InfiniteTimeSpan; // large mp4 downloads
-});
-builder.Services.AddHttpClient<TorrentProvider>(c => c.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUa));
 builder.Services.AddHttpClient<QBittorrentClient>();
 builder.Services.AddHttpClient("plugins", c => { c.Timeout = Timeout.InfiniteTimeSpan; c.DefaultRequestHeaders.UserAgent.ParseAdd("AnimeRoll-Plugin/1.0"); });
 builder.Services.AddSingleton<TelegramService>();
 builder.Services.AddSingleton<TelegramProvider>();
 builder.Services.AddSingleton<PluginHost>();
 
-builder.Services.AddTransient<ISourceProvider>(sp => sp.GetRequiredService<StreamSiteProvider>());
-builder.Services.AddTransient<ISourceProvider>(sp => sp.GetRequiredService<TorrentProvider>());
+LocalProviders.Register(builder.Services);
 builder.Services.AddTransient<ISourceProvider>(sp => sp.GetRequiredService<TelegramProvider>());
 builder.Services.AddTransient<ProviderRegistry>();
 
@@ -144,6 +135,7 @@ app.MapSourcesAndDownloads();
 app.MapRepair();
 app.MapSubtitleRefresh();
 app.MapMoveEpisodes();
+app.MapEditEpisode();
 app.MapPlugins();
 
 // Web client (AnimeRoll.Client/Web build) is copied to wwwroot in the Docker image.

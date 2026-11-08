@@ -33,7 +33,7 @@ public static class DownloadEndpoints
         s.MapGet("/{source}/episodes", async (string source, string @ref, ProviderRegistry reg, CancellationToken ct) =>
             reg.Get(source) is { Enabled: true } p ? Results.Ok(await p.EpisodesAsync(@ref, ct)) : Results.NotFound());
 
-        // Watch directly from the source without downloading (StreamSite).
+        // Watch directly from the source without downloading.
         s.MapGet("/{source}/stream", async (string source, string @ref, ProviderRegistry reg, CancellationToken ct) =>
         {
             if (reg.Get(source) is not { Enabled: true, CanStream: true } p) return Results.NotFound();
@@ -50,9 +50,9 @@ public static class DownloadEndpoints
             // Refuse right away when the NAS is (nearly) full, and catch torrents that cannot work before queueing them.
             try { DiskSpace.EnsureRoom(0, o.Value.MediaPath, Path.Combine(o.Value.DataPath, "work")); }
             catch (InsufficientSpaceException e) { return Results.Json(new { error = e.Message }, statusCode: StatusCodes.Status507InsufficientStorage); }
-            if (req.Source.Equals("torrent", StringComparison.OrdinalIgnoreCase))
+            if (reg.Get(req.Source) is IRequestValidator validator)
             {
-                var problem = await TorrentProvider.CheckRequestAsync(req.Items.Select(i => i.SourceRef), db);
+                var problem = await validator.ValidateAsync(req.Items.Select(i => i.SourceRef), db);
                 if (problem is not null) return Results.BadRequest(new { error = problem });
             }
             var jobs = req.Items.Select(i => new DownloadJob

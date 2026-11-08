@@ -111,7 +111,7 @@ public sealed partial class MediaPipeline(AppDb db, AniListClient aniList, IOpti
             Directory.Delete(subsDir, true);
 
             var rel = Path.GetRelativePath(_o.MediaPath, target);
-            var ep = await db.Episodes.FirstOrDefaultAsync(e => e.SeriesId == series.Id && e.Number == number, ct);
+            var ep = await db.Episodes.FirstOrDefaultAsync(e => e.SeriesId == series.Id && !e.IsExtra && e.Number == number, ct);
             if (ep == null) { ep = new Episode { SeriesId = series.Id, FilePath = rel, Source = source, Number = number }; db.Episodes.Add(ep); }
             ep.FilePath = rel; ep.Source = source;
             ep.SizeBytes = new FileInfo(target).Length;

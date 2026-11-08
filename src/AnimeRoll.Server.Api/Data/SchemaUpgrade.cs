@@ -10,6 +10,7 @@ public static class SchemaUpgrade
     private static readonly (string Table, string Column, string Definition)[] Columns =
     [
         ("Downloads", "Priority", "INTEGER NOT NULL DEFAULT 0"),
+        ("Episodes", "IsExtra", "INTEGER NOT NULL DEFAULT 0"),
     ];
 
     public static void Apply(AppDb db, string mediaPath)

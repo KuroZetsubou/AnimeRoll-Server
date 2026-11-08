@@ -50,6 +50,12 @@ public interface ISourceProvider
     ProviderInfo Info => new(Id, Name, Enabled, CanSearch, CanListEpisodes, CanStream, Hint, null, false, CanSubtitles);
 }
 
+/// A source that can refuse a download request up front (e.g. a torrent that cannot work); returns the reason, or null.
+public interface IRequestValidator
+{
+    Task<string?> ValidateAsync(IEnumerable<string> refs, AppDb db);
+}
+
 /// Built-in sources + every loaded plugin.
 public sealed class ProviderRegistry(IEnumerable<ISourceProvider> providers, AnimeRoll.Server.Api.Plugins.PluginHost plugins)
 {
