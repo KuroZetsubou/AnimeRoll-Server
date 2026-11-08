@@ -136,11 +136,26 @@ app.MapRepair();
 app.MapSubtitleRefresh();
 app.MapMoveEpisodes();
 app.MapEditEpisode();
+app.MapEditSeries();
 app.MapPlugins();
 
 // Web client (AnimeRoll.Client/Web build) is copied to wwwroot in the Docker image.
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapFallbackToFile("index.html");
+
+// Series created while AniList was down have no poster: complete them in the background once it answers.
+_ = Task.Run(async () =>
+{
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var n = await AnimeRoll.Server.Api.Library.EditSeries.FillMissingAsync(scope.ServiceProvider.GetRequiredService<AppDb>(),
+            scope.ServiceProvider.GetRequiredService<AnimeRoll.Server.Api.AniList.AniListClient>(),
+            scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("EditSeries"), CancellationToken.None);
+        if (n > 0) app.Logger.LogInformation("Metadati completati per {Count} serie", n);
+    }
+    catch (Exception e) { app.Logger.LogWarning(e, "Completamento metadati non riuscito"); }
+});
 
 app.Run();

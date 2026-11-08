@@ -1,4 +1,6 @@
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -167,8 +169,75 @@ public sealed class AniListClient(HttpClient http, IOptions<AnimeRollOptions> op
         await QueryAsync("mutation($m:Int,$s:MediaListStatus){ SaveMediaListEntry(mediaId:$m, status:$s){ id } }",
             new { m = mediaId, s = status }, token, ct);
 
+    // ---- Cache ----
+    // Every query is cached on disk (DataPath/anilist-cache). A fresh copy is served without asking AniList; when AniList
+    // is down, slow or rate-limiting, the last copy is served however old it is, so the apps keep working. Data that
+    // belongs to a user is keyed by their token and dropped when they change something on AniList.
+    private static readonly TimeSpan PublicTtl = TimeSpan.FromHours(6), UserTtl = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan LiveTimeout = TimeSpan.FromSeconds(12);
+    private string CacheDir => Path.Combine(options.Value.DataPath, "anilist-cache");
+
+    private static string Hex(string s) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(s))).ToLowerInvariant();
+
+    private string CachePath(string query, object? variables, string? token)
+    {
+        var owner = token is null ? "pub" : Hex(token)[..10];
+        return Path.Combine(CacheDir, $"{owner}-{Hex(query + "|" + JsonSerializer.Serialize(variables))[..40]}.json");
+    }
+
+    private void DropUserCache(string token)
+    {
+        try { foreach (var f in Directory.EnumerateFiles(CacheDir, Hex(token)[..10] + "-*.json")) File.Delete(f); }
+        catch (DirectoryNotFoundException) { }
+        catch (IOException) { }
+    }
+
+    private static JsonNode? ReadCache(string path)
+    {
+        try { return File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path)) : null; }
+        catch (Exception e) when (e is IOException or JsonException) { return null; }
+    }
+
     private async Task<JsonNode> QueryAsync(string query, object? variables, string? token, CancellationToken ct)
     {
+        if (query.TrimStart().StartsWith("mutation", StringComparison.Ordinal))
+        {
+            var result = await FetchAsync(query, variables, token, ct, LiveTimeout);
+            if (token != null) DropUserCache(token);
+            return result;
+        }
+        var path = CachePath(query, variables, token);
+        var age = File.Exists(path) ? DateTime.UtcNow - File.GetLastWriteTimeUtc(path) : (TimeSpan?)null;
+        if (age is { } a && a < (token is null ? PublicTtl : UserTtl) && ReadCache(path) is { } fresh) return fresh;
+        try
+        {
+            var live = await FetchAsync(query, variables, token, ct, LiveTimeout);
+            Directory.CreateDirectory(CacheDir);
+            var tmp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            await File.WriteAllTextAsync(tmp, live.ToJsonString(), ct);
+            File.Move(tmp, path, overwrite: true);
+            return live;
+        }
+        catch (Exception e) when (!ct.IsCancellationRequested && IsOutage(e))
+        {
+            if (ReadCache(path) is { } stale) return stale;   // AniList is unreachable: the last answer is better than an error
+            throw;
+        }
+    }
+
+    /// Network failure, timeout, rate limit or AniList-side error: worth falling back to the cached answer.
+    private static bool IsOutage(Exception e) => e switch
+    {
+        HttpRequestException h => h.StatusCode is null or >= System.Net.HttpStatusCode.InternalServerError or System.Net.HttpStatusCode.TooManyRequests,
+        TaskCanceledException or JsonException => true,
+        _ => false,
+    };
+
+    private async Task<JsonNode> FetchAsync(string query, object? variables, string? token, CancellationToken ct, TimeSpan timeout)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(timeout);
+        ct = cts.Token;
         using var req = new HttpRequestMessage(HttpMethod.Post, Endpoint)
         {
             Content = JsonContent.Create(new { query, variables }),
