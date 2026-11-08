@@ -9,8 +9,8 @@ Ci sono due tipi di plugin:
 
 | Tipo | Quando usarlo | Esempio nel repo |
 |---|---|---|
-| **.NET** (C#) | Logica complessa, librerie NuGet, prestazioni | `AnimeRoll.Server/plugins-sdk/Template` (scheletro), `InternetArchive` |
-| **Script** (qualsiasi linguaggio) | Python, Node, bash, binari già esistenti | `AnimeRoll.Server/plugins-sdk/direct-url` |
+| **.NET** (C#) | Logica complessa, librerie NuGet, prestazioni | `plugins-sdk/Template` (scheletro), `InternetArchive` |
+| **Script** (qualsiasi linguaggio) | Python, Node, bash, binari già esistenti | `plugins-sdk/direct-url` |
 
 ## Installazione sul NAS
 
@@ -22,7 +22,7 @@ Ci sono due tipi di plugin:
 
 1. Copia la cartella del plugin in `plugins/` (montata come `/plugins` nel container).
 2. Metti le impostazioni segrete nel `.env`: `AnimeRoll__Plugins__Settings__<id>__<chiave>=valore`.
-3. Dalla cartella `AnimeRoll.Server`: `docker compose up -d animeroll`. Ricrea il container e rilegge il `.env`;
+3. Dalla cartella del server: `docker compose up -d animeroll`. Ricrea il container e rilegge il `.env`;
    `docker compose restart` non basta se hai cambiato il `.env`.
 4. Controlla lo stato: `GET /api/plugins` (oppure `docker logs animeroll | grep -i plugin`).
 

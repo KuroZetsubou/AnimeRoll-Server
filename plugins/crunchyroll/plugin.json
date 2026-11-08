@@ -1,0 +1,21 @@
+{
+    "type": "script",
+    "id": "crunchyroll",
+    "name": "Crunchyroll",
+    "version": "2.0.0",
+    "command": [
+        "python3",
+        "main.py"
+    ],
+    "capabilities": [
+        "search",
+        "episodes",
+        "subtitles"
+    ],
+    "hint": "Sottotitoli (ASS) per gli episodi che hai già in libreria. Serve l'account e il cookie etp_rt; non scarica video.",
+    "settings": {
+        "subs_lang": "en-US",
+        "cc_lang": "",
+        "audio_lang": "ja-JP"
+    }
+}

@@ -1,0 +1,12 @@
+bin/
+obj/
+*.user
+.env
+.data/
+.media/
+__pycache__/
+.DS_Store
+
+# Local-only sources and compose overrides: never committed
+src/AnimeRoll.Server.Api/Providers/Private/
+docker-compose.override.yml
