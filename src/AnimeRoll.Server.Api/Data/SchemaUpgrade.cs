@@ -4,13 +4,20 @@ using Microsoft.EntityFrameworkCore;
 namespace AnimeRoll.Server.Api.Data;
 
 /// EnsureCreated() only builds a brand-new database. Columns added later are added here,
-/// once, to databases created by older versions (e.g. the one already on the NAS).
+/// once, to databases created by older versions (e.g. the one already on the server).
 public static class SchemaUpgrade
 {
     private static readonly (string Table, string Column, string Definition)[] Columns =
     [
         ("Downloads", "Priority", "INTEGER NOT NULL DEFAULT 0"),
         ("Episodes", "IsExtra", "INTEGER NOT NULL DEFAULT 0"),
+        ("Users", "MalAccessToken", "TEXT NULL"),
+        ("Users", "MalRefreshToken", "TEXT NULL"),
+        ("Users", "MalExpiresAt", "TEXT NULL"),
+        ("Users", "MalUserName", "TEXT NULL"),
+        ("Users", "Tracker", "TEXT NULL"),
+        ("Users", "Avatar", "INTEGER NOT NULL DEFAULT 0"),
+        ("Users", "PasscodeHash", "TEXT NULL"),
     ];
 
     public static void Apply(AppDb db, string mediaPath)

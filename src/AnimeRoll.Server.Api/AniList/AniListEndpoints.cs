@@ -17,8 +17,8 @@ public static class AniListEndpoints
         string Redirect(AnimeRollOptions o) => $"{o.PublicBaseUrl.TrimEnd('/')}/api/anilist/callback";
 
         // Client opens this URL in a browser (ASWebAuthenticationSession on Apple).
-        g.MapGet("/connect", (HttpContext ctx, AniListClient al, TokenService tokens, IOptions<AnimeRollOptions> o) =>
-            Results.Ok(new { url = al.AuthorizeUrl(Redirect(o.Value), tokens.CreateState(ctx.User.UserId())) }))
+        g.MapGet("/connect", (string? client, HttpContext ctx, AniListClient al, TokenService tokens, IOptions<AnimeRollOptions> o) =>
+            Results.Ok(new { url = al.AuthorizeUrl(Redirect(o.Value), tokens.CreateState(ctx.User.UserId(), client == "web" ? "web" : null)) }))
             .RequireAuthorization();
 
         g.MapGet("/callback", async (string? code, string? state, AppDb db, AniListClient al, TokenService tokens,
@@ -32,15 +32,17 @@ public static class AniListEndpoints
             user.AniListToken = token;
             user.AniListUserId = id;
             user.AniListUserName = name;
+            user.Tracker ??= "anilist";
             await db.SaveChangesAsync(ct);
-            // Apps listen for this custom scheme to close the auth sheet.
-            return Results.Redirect("animeroll://anilist-connected");
+            // Apps listen for this custom scheme to close the auth sheet; the web client comes back to its profile page.
+            return Results.Redirect(tokens.StateTag(state) == "web" ? "/profile" : "animeroll://anilist-connected");
         });
 
         g.MapDelete("/connect", async (HttpContext ctx, AppDb db) =>
         {
             var user = await db.Users.FirstAsync(u => u.Id == ctx.User.UserId());
             user.AniListToken = null; user.AniListUserId = null; user.AniListUserName = null;
+            if (user.Tracker == "anilist") user.Tracker = null;
             await db.SaveChangesAsync();
             return Results.NoContent();
         }).RequireAuthorization();

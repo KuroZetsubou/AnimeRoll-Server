@@ -20,7 +20,7 @@ public sealed class DownloadContext(DownloadJob job, string workDir, Func<double
     public Task ReportAsync(double progress01, string? message = null) => report(progress01, message);
 }
 
-/// A place anime can come from. Every provider can download to the NAS;
+/// A place anime can come from. Every provider can download to the server;
 /// search, episode lists and direct streaming are optional.
 public interface ISourceProvider
 {

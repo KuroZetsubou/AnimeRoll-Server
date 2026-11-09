@@ -54,22 +54,28 @@ public sealed class TokenService(IOptions<AnimeRollOptions> options)
         return Guid.TryParseExact(parts[0], "N", out var id) ? id : null;
     }
 
-    /// Signed opaque state for the AniList OAuth round trip.
-    public string CreateState(Guid userId)
+    /// Signed opaque state for the OAuth round trip (AniList, MyAnimeList). The optional tag says who is asking ("web").
+    public string CreateState(Guid userId, string? tag = null)
     {
-        var payload = $"{userId:N}.{DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeSeconds()}";
+        var payload = $"{userId:N}.{DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeSeconds()}" + (tag is null ? "" : $".{tag}");
         return $"{payload}.{Sign(payload)}";
     }
 
-    public Guid? ValidateState(string? state)
+    public Guid? ValidateState(string? state) => ReadState(state)?.UserId;
+    public string? StateTag(string? state) => ReadState(state)?.Tag;
+
+    private (Guid UserId, string? Tag)? ReadState(string? state)
     {
         var parts = state?.Split('.');
-        if (parts is not { Length: 3 }) return null;
-        var payload = $"{parts[0]}.{parts[1]}";
-        if (Sign(payload) != parts[2]) return null;
+        if (parts is not { Length: 3 or 4 }) return null;
+        var payload = string.Join('.', parts[..^1]);
+        if (Sign(payload) != parts[^1]) return null;
         if (!long.TryParse(parts[1], out var exp) || DateTimeOffset.UtcNow.ToUnixTimeSeconds() > exp) return null;
-        return Guid.TryParseExact(parts[0], "N", out var id) ? id : null;
+        return Guid.TryParseExact(parts[0], "N", out var id) ? (id, parts.Length == 4 ? parts[2] : null) : null;
     }
+
+    /// PKCE code verifier for the MyAnimeList round trip, derived from the signed state so nothing is stored.
+    public string PkceVerifier(string state) => Sign("pkce:" + state);
 
     private string Sign(string payload)
     {

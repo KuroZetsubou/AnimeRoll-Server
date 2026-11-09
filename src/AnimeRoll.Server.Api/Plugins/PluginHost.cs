@@ -201,7 +201,7 @@ public sealed class PluginSourceProvider(ISourcePlugin plugin, PluginInfo info, 
         var request = new PluginDownloadRequest(ctx.Job.SourceRef, ctx.Job.SeriesTitle, ctx.Job.EpisodeNumber, ctx.Job.AniListId);
         var files = await plugin.DownloadAsync(request, new DownloadContextAdapter(ctx), ct);
 
-        // Only accept files inside the job folder: a plugin can't import arbitrary paths from the NAS.
+        // Only accept files inside the job folder: a plugin can't import arbitrary paths from the server.
         var root = Path.GetFullPath(ctx.WorkDir) + Path.DirectorySeparatorChar;
         var checkedFiles = files.Select(f => Path.GetFullPath(Path.IsPathRooted(f) ? f : Path.Combine(ctx.WorkDir, f))).ToList();
         if (checkedFiles.FirstOrDefault(f => !f.StartsWith(root, StringComparison.Ordinal) || !File.Exists(f)) is { } bad)

@@ -196,7 +196,7 @@ public sealed partial class MediaPipeline(AppDb db, AniListClient aniList, IOpti
         var ep = await db.Episodes.FirstOrDefaultAsync(e => e.Id == episodeId, ct)
                  ?? throw new InvalidOperationException("Episodio non trovato.");
         var mp4 = Path.Combine(_o.MediaPath, ep.FilePath);
-        if (!File.Exists(mp4)) throw new InvalidOperationException("Il file dell'episodio non esiste più sul NAS.");
+        if (!File.Exists(mp4)) throw new InvalidOperationException("Il file dell'episodio non esiste più sul server.");
 
         var before = await ProbeSyncAsync(mp4, ct);
         var embedded = await ExtractSubtitlesAsync(mp4, workDir, ct);

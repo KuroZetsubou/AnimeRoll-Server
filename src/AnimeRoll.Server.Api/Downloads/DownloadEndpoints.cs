@@ -10,7 +10,7 @@ namespace AnimeRoll.Server.Api.Downloads;
 
 public sealed record DownloadItem(string SourceRef, double? EpisodeNumber);
 
-/// "Scarica sul NAS": one request can queue a single episode or a whole season.
+/// "Scarica sul server": one request can queue a single episode or a whole season.
 public sealed record DownloadRequest(string Source, string SeriesTitle, int? AniListId, List<DownloadItem> Items);
 
 public sealed record TelegramLoginRequest(string? Code);
@@ -47,7 +47,7 @@ public static class DownloadEndpoints
         {
             if (reg.Get(req.Source) is not { Enabled: true }) return Results.BadRequest(new { error = $"Fonte '{req.Source}' non disponibile." });
             if (req.Items.Count == 0) return Results.BadRequest(new { error = "Nessun episodio selezionato." });
-            // Refuse right away when the NAS is (nearly) full, and catch torrents that cannot work before queueing them.
+            // Refuse right away when the server is (nearly) full, and catch torrents that cannot work before queueing them.
             try { DiskSpace.EnsureRoom(0, o.Value.MediaPath, Path.Combine(o.Value.DataPath, "work")); }
             catch (InsufficientSpaceException e) { return Results.Json(new { error = e.Message }, statusCode: StatusCodes.Status507InsufficientStorage); }
             if (reg.Get(req.Source) is IRequestValidator validator)
@@ -164,7 +164,7 @@ public static class DownloadEndpoints
             return Results.Accepted();
         });
 
-        // Free space on the NAS (Profilo): disk total and free, what the library takes, and the reserve kept free.
+        // Free space on the server (Profilo): disk total and free, what the library takes, and the reserve kept free.
         app.MapGet("/api/settings/storage", async (AppDb db, IOptions<AnimeRollOptions> o) =>
         {
             var disk = DiskSpace.Read(o.Value.MediaPath);

@@ -1,5 +1,6 @@
 using AnimeRoll.Server.Api.Infrastructure;
 using AnimeRoll.Server.Api.AniList;
+using AnimeRoll.Server.Api.Tracking;
 using AnimeRoll.Server.Api.Auth;
 using AnimeRoll.Server.Api.Data;
 using AnimeRoll.Server.Api.Downloads;
@@ -47,7 +48,7 @@ public static class LibraryEndpoints
     {
         var g = app.MapGroup("/api/library").WithTags("Library").RequireAuthorization();
 
-        g.MapGet("/home", async (HttpContext ctx, AppDb db, AniListClient al, ILoggerFactory lf, CancellationToken ct) =>
+        g.MapGet("/home", async (HttpContext ctx, AppDb db, AniListClient al, TrackerService trackers, ILoggerFactory lf, CancellationToken ct) =>
         {
             var uid = ctx.User.UserId();
             var user = await db.Users.FirstAsync(u => u.Id == uid, ct);
@@ -65,8 +66,9 @@ public static class LibraryEndpoints
             {
                 try { return await f(); } catch (Exception e) { log.LogWarning(e, "AniList non raggiungibile"); return []; }
             }
-            var watchingTask = user.AniListToken is null ? Task.FromResult(new List<AniListEntry>())
-                : Safe(() => al.ListAsync(user.AniListToken, user.AniListUserId!.Value, "CURRENT", ct));
+            var tracker = trackers.For(user);
+            var watchingTask = tracker is null ? Task.FromResult(new List<AniListEntry>())
+                : Safe(() => tracker.ListAsync("CURRENT", ct));
             var trendingTask = Safe(() => al.TrendingAsync(20, ct));
             var seasonalTask = Safe(() => al.SeasonalAsync(20, ct));
             await Task.WhenAll(watchingTask, trendingTask, seasonalTask);
@@ -139,7 +141,7 @@ public static class LibraryEndpoints
                 ep.DurationSeconds, p is { Completed: false } ? p.PositionSeconds : null, subs, fonts, audio));
         });
 
-        g.MapPut("/episodes/{id:int}/progress", async (int id, ProgressRequest req, HttpContext ctx, AppDb db, AniListClient al,
+        g.MapPut("/episodes/{id:int}/progress", async (int id, ProgressRequest req, HttpContext ctx, AppDb db, TrackerService trackers,
             ILoggerFactory lf, CancellationToken ct) =>
         {
             var uid = ctx.User.UserId();
@@ -161,25 +163,25 @@ public static class LibraryEndpoints
             if (p.Completed && !p.SyncedToAniList && !ep.IsExtra && ep.Series!.AniListId is { } mediaId)
             {
                 var user = await db.Users.FirstAsync(u => u.Id == uid, ct);
-                if (user.AniListToken != null)
+                if (trackers.For(user) is { } tracker)
                 {
                     try
                     {
-                        // Never move AniList progress backwards when rewatching an old episode.
-                        var entry = await al.EntryAsync(user.AniListToken, user.AniListUserId!.Value, mediaId, ct);
+                        // Never move the list backwards when rewatching an old episode.
+                        var entry = await tracker.EntryAsync(mediaId, ct);
                         var newProgress = (int)Math.Floor(ep.Number);
                         if (entry is null || entry.Progress < newProgress)
-                            await al.SaveProgressAsync(user.AniListToken, mediaId, newProgress, ep.Series.TotalEpisodes, ct);
+                            await tracker.SaveAsync(mediaId, ep.Series.TotalEpisodes, new TrackUpdate(null, newProgress, null), ct);
                         p.SyncedToAniList = true; syncedNow = true;
                     }
-                    catch (Exception e) { lf.CreateLogger("Progress").LogWarning(e, "Sync AniList fallito"); }
+                    catch (Exception e) { lf.CreateLogger("Progress").LogWarning(e, "Sync della lista fallito"); }
                 }
             }
             await db.SaveChangesAsync(ct);
             return Results.Ok(new { p.Completed, aniListSynced = syncedNow });
         });
 
-        // Delete an episode from the NAS: the file, its subtitles and everyone's progress. A series left
+        // Delete an episode from the server: the file, its subtitles and everyone's progress. A series left
         // without episodes disappears too (its folder as well, when empty).
         g.MapDelete("/episodes/{id:int}", async (int id, AppDb db, IOptions<AnimeRollOptions> o) =>
         {
@@ -229,7 +231,7 @@ public static class LibraryEndpoints
             }
         }).DisableAntiforgery().WithMetadata(new RequestSizeLimitAttribute(20L * 1024 * 1024 * 1024));
 
-        // ---- Local files: import a folder already on the NAS (/media/inbox) ----
+        // ---- Local files: import a folder already on the server (/media/inbox) ----
         g.MapPost("/scan-inbox", async (AppDb db, MediaPipeline pipeline, IOptions<AnimeRollOptions> o, CancellationToken ct) =>
         {
             var inbox = Path.Combine(o.Value.MediaPath, "_inbox");

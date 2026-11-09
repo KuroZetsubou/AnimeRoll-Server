@@ -11,7 +11,7 @@ namespace AnimeRoll.Server.Api.AniList;
 
 public sealed record AniListMedia(
     int Id, string Title, string? TitleRomaji, string? Description, string? CoverUrl, string? BannerUrl,
-    int? Episodes, int? Year, string? Status, string? Format, List<string> Genres, int? AverageScore, int? NextAiringEpisode, long? NextAiringAt = null);
+    int? Episodes, int? Year, string? Status, string? Format, List<string> Genres, int? AverageScore, int? NextAiringEpisode, long? NextAiringAt = null, int? MalId = null);
 
 /// A title linked to another by AniList (prequel, sequel, side story…); Relation is already in Italian.
 public sealed record AniListRelated(string Relation, AniListMedia Media);
@@ -25,7 +25,7 @@ public sealed class AniListClient(HttpClient http, IOptions<AnimeRollOptions> op
     private readonly AniListOptions _o = options.Value.AniList;
 
     private const string MediaFields = """
-        id episodes seasonYear status format genres averageScore description(asHtml:false)
+        id idMal episodes seasonYear status format genres averageScore description(asHtml:false)
         title { english romaji userPreferred }
         coverImage { extraLarge large }
         bannerImage
@@ -132,7 +132,7 @@ public sealed class AniListClient(HttpClient http, IOptions<AnimeRollOptions> op
     {
         var data = await QueryAsync($$"""
             query($u:Int,$s:MediaListStatus){ MediaListCollection(userId:$u, type:ANIME, status:$s, sort:UPDATED_TIME_DESC){
-              lists { entries { status progress score media { {{MediaFields}} } } } } }
+              lists { entries { status progress score(format:POINT_10_DECIMAL) media { {{MediaFields}} } } } } }
             """, new { u = userId, s = status }, token, ct);
         var result = new List<AniListEntry>();
         foreach (var list in data["MediaListCollection"]!["lists"]!.AsArray())
@@ -147,7 +147,7 @@ public sealed class AniListClient(HttpClient http, IOptions<AnimeRollOptions> op
         try
         {
             var data = await QueryAsync($$"""
-                query($u:Int,$m:Int){ MediaList(userId:$u, mediaId:$m){ status progress score media { {{MediaFields}} } } }
+                query($u:Int,$m:Int){ MediaList(userId:$u, mediaId:$m){ status progress score(format:POINT_10_DECIMAL) media { {{MediaFields}} } } }
                 """, new { u = userId, m = mediaId }, token, ct);
             var e = data["MediaList"];
             return e is null ? null : new AniListEntry(ParseMedia(e["media"]!), e["status"]!.GetValue<string>(),
@@ -163,6 +163,27 @@ public sealed class AniListClient(HttpClient http, IOptions<AnimeRollOptions> op
         await QueryAsync("""
             mutation($m:Int,$p:Int,$s:MediaListStatus){ SaveMediaListEntry(mediaId:$m, progress:$p, status:$s){ id progress status } }
             """, new { m = mediaId, p = progress, s = status }, token, ct);
+    }
+
+    /// Saves only the fields that are given (status, episodes watched, score 0-10 where 0 clears it).
+    public async Task SaveEntryAsync(string token, int mediaId, string? status, int? progress, double? score, CancellationToken ct)
+    {
+        var decl = new List<string> { "$m:Int" };
+        var args = new List<string> { "mediaId:$m" };
+        var vars = new Dictionary<string, object?> { ["m"] = mediaId };
+        if (status != null) { decl.Add("$s:MediaListStatus"); args.Add("status:$s"); vars["s"] = status; }
+        if (progress != null) { decl.Add("$p:Int"); args.Add("progress:$p"); vars["p"] = progress; }
+        if (score != null) { decl.Add("$r:Int"); args.Add("scoreRaw:$r"); vars["r"] = (int)Math.Round(Math.Clamp(score.Value, 0, 10) * 10); }
+        await QueryAsync($"mutation({string.Join(",", decl)}){{ SaveMediaListEntry({string.Join(",", args)}){{ id }} }}", vars, token, ct);
+    }
+
+    /// AniList titles for a batch of MyAnimeList ids (used to show a MAL list with AniList metadata).
+    public async Task<List<AniListMedia>> MediaByMalIdsAsync(IReadOnlyCollection<int> malIds, CancellationToken ct)
+    {
+        if (malIds.Count == 0) return [];
+        return ParseMediaList((await QueryAsync($$"""
+            query($ids:[Int]){ Page(perPage:50){ media(idMal_in:$ids, type:ANIME){ {{MediaFields}} } } }
+            """, new { ids = malIds.Take(50).ToArray() }, null, ct))["Page"]!["media"]!.AsArray());
     }
 
     public async Task SaveStatusAsync(string token, int mediaId, string status, CancellationToken ct) =>
@@ -272,6 +293,7 @@ public sealed class AniListClient(HttpClient http, IOptions<AnimeRollOptions> op
             m["genres"]?.AsArray().Select(g => g!.GetValue<string>()).ToList() ?? [],
             I(m["averageScore"]),
             I(m["nextAiringEpisode"]?["episode"]),
-            m["nextAiringEpisode"]?["airingAt"] is { } at && at.GetValueKind() == JsonValueKind.Number ? at.GetValue<long>() : null);
+            m["nextAiringEpisode"]?["airingAt"] is { } at && at.GetValueKind() == JsonValueKind.Number ? at.GetValue<long>() : null,
+            I(m["idMal"]));
     }
 }

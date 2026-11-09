@@ -11,6 +11,20 @@ public sealed class User
     public int? AniListUserId { get; set; }
     public string? AniListUserName { get; set; }
 
+    /// MyAnimeList (OAuth2 PKCE): tracking only, metadata always comes from AniList.
+    public string? MalAccessToken { get; set; }
+    public string? MalRefreshToken { get; set; }
+    public DateTime? MalExpiresAt { get; set; }
+    public string? MalUserName { get; set; }
+
+    /// Which list this profile syncs with: "anilist", "mal" or null (the one that is connected).
+    public string? Tracker { get; set; }
+
+    /// Profile picture: index of one of the client's built-in avatars.
+    public int Avatar { get; set; }
+    /// Hash of the 4-12 character passcode that locks this profile when switching to it; null = open.
+    public string? PasscodeHash { get; set; }
+
     public List<PasskeyCredential> Passkeys { get; set; } = [];
 }
 
@@ -27,7 +41,7 @@ public sealed class PasskeyCredential
     public DateTime? LastUsedAt { get; set; }
 }
 
-/// A show in the NAS library, matched to AniList when possible.
+/// A show in the server library, matched to AniList when possible.
 public sealed class Series
 {
     public int Id { get; set; }

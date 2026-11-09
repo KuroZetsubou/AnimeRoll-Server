@@ -2,16 +2,16 @@ using AnimeRoll.Server.Api.Options;
 
 namespace AnimeRoll.Server.Api.Infrastructure;
 
-/// Raised when the NAS doesn't have room for what is about to be written.
+/// Raised when the server doesn't have room for what is about to be written.
 public sealed class InsufficientSpaceException(string message) : InvalidOperationException(message);
 
 public sealed record StorageInfo(long TotalBytes, long FreeBytes, long LibraryBytes, long ReserveBytes);
 
 /// Free space on the disks the server writes to (library, work folder, torrents).
-/// Every download, upload and import calls `EnsureRoom` first so a full NAS fails early with a clear message.
+/// Every download, upload and import calls `EnsureRoom` first so a full server fails early with a clear message.
 public static class DiskSpace
 {
-    /// Always kept free (AnimeRoll__MinFreeSpaceGb), so the NAS itself never fills up.
+    /// Always kept free (AnimeRoll__MinFreeSpaceGb), so the server itself never fills up.
     public static long ReserveBytes { get; private set; } = 2L * 1024 * 1024 * 1024;
 
     public static void Configure(AnimeRollOptions o) => ReserveBytes = Math.Max(0, o.MinFreeSpaceGb) * 1024L * 1024 * 1024;
@@ -57,8 +57,8 @@ public static class DiskSpace
             var needed = neededBytes * group.Count() + ReserveBytes;
             if (free < needed)
                 throw new InsufficientSpaceException(neededBytes == 0
-                    ? $"Spazio insufficiente sul NAS: liberi {Format(free)}, meno della riserva di {Format(ReserveBytes)}. Libera spazio eliminando qualche episodio."
-                    : $"Spazio insufficiente sul NAS: servono {Format(neededBytes * group.Count())} (più {Format(ReserveBytes)} di riserva), liberi {Format(free)}. Libera spazio eliminando qualche episodio.");
+                    ? $"Spazio insufficiente sul server: liberi {Format(free)}, meno della riserva di {Format(ReserveBytes)}. Libera spazio eliminando qualche episodio."
+                    : $"Spazio insufficiente sul server: servono {Format(neededBytes * group.Count())} (più {Format(ReserveBytes)} di riserva), liberi {Format(free)}. Libera spazio eliminando qualche episodio.");
         }
     }
 

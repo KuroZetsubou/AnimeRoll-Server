@@ -1,13 +1,11 @@
-# NAS (x86_64): put AnimeRoll-Server and AnimeRoll-Web side by side, add a .env, then
+# server UGREEN (x86_64): copy the AnimeRoll-Home folder + .env to the NAS, then
 #   docker compose up -d --build
 # Paths come from .env (defaults below). PUID/PGID = the NAS user that owns the files (`id` on the NAS).
 services:
   animeroll:
     build:
-      context: .
-      dockerfile: Dockerfile
-      additional_contexts:
-        web-src: ${ANIMEROLL_WEB:-../AnimeRoll-Web}
+      context: ..
+      dockerfile: AnimeRoll.Server/Dockerfile
       platforms: ["linux/amd64"]
     image: animeroll-server:latest
     container_name: animeroll

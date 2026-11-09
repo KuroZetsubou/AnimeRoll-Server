@@ -6,7 +6,7 @@ public sealed class AnimeRollOptions
 {
     public const string Section = "AnimeRoll";
 
-    /// Public base URL the clients use to reach the NAS (e.g. https://anime.mionas.it).
+    /// Public base URL the clients use to reach the server (e.g. https://anime.mionas.it).
     public string PublicBaseUrl { get; set; } = "http://localhost:8080";
 
     /// SQLite database, Telegram session, temp files.
@@ -20,7 +20,7 @@ public sealed class AnimeRollOptions
 
     public string FfmpegPath { get; set; } = "ffmpeg";
 
-    /// Free space always left on the NAS (GB): downloads, uploads and imports that would go below it are refused.
+    /// Free space always left on the server (GB): downloads, uploads and imports that would go below it are refused.
     public int MinFreeSpaceGb { get; set; } = 2;
 
     /// Allow creating the first account through the API. Turn off after setup.
@@ -29,6 +29,7 @@ public sealed class AnimeRollOptions
     public JwtOptions Jwt { get; set; } = new();
     public PasskeyOptions Passkey { get; set; } = new();
     public AniListOptions AniList { get; set; } = new();
+    public MalOptions Mal { get; set; } = new();
     public QBittorrentOptions QBittorrent { get; set; } = new();
     public TelegramOptions Telegram { get; set; } = new();
     public PluginOptions Plugins { get; set; } = new();
@@ -46,7 +47,7 @@ public sealed class JwtOptions
 
 public sealed class PasskeyOptions
 {
-    /// Relying party id: the NAS domain without scheme/port (e.g. anime.mionas.it).
+    /// Relying party id: the server domain without scheme/port (e.g. anime.mionas.it).
     public string ServerDomain { get; set; } = "localhost";
     public string ServerName { get; set; } = "AnimeRoll";
     /// Allowed origins, e.g. https://anime.mionas.it. Apple apps use the same https origin.
@@ -57,6 +58,14 @@ public sealed class AniListOptions
 {
     /// Create a client at https://anilist.co/settings/developer
     /// with redirect URL {PublicBaseUrl}/api/anilist/callback
+    public string ClientId { get; set; } = "";
+    public string ClientSecret { get; set; } = "";
+}
+
+public sealed class MalOptions
+{
+    /// Create an app at https://myanimelist.net/apiconfig (type "web") with redirect URL
+    /// {PublicBaseUrl}/api/mal/callback. MAL is used only to track the list; metadata stays on AniList.
     public string ClientId { get; set; } = "";
     public string ClientSecret { get; set; } = "";
 }

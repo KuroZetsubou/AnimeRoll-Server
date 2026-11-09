@@ -11,8 +11,10 @@ using Microsoft.Extensions.Options;
 namespace AnimeRoll.Server.Api.Auth;
 
 public sealed record PasswordLoginRequest(string Username, string Password);
+public sealed record PasswordChange(string? Current, string NewPassword);
 public sealed record AuthResponse(string AccessToken, UserDto User);
-public sealed record UserDto(Guid Id, string Username, bool AniListConnected, string? AniListUserName, int PasskeyCount);
+public sealed record UserDto(Guid Id, string Username, bool AniListConnected, string? AniListUserName, int PasskeyCount,
+    int Avatar = 0, bool HasPasscode = false, string? Tracker = null, bool MalConnected = false, string? MalUserName = null);
 public sealed record CeremonyStart(string CeremonyId, object Options);
 public sealed record PasskeyRegisterFinish(string CeremonyId, AuthenticatorAttestationRawResponse Response, string? Name);
 public sealed record PasskeyLoginStart(string? Username);
@@ -26,7 +28,8 @@ public static class AuthEndpoints
     private static readonly PasswordHasher<User> Hasher = new();
 
     public static UserDto ToDto(this User u) =>
-        new(u.Id, u.Username, u.AniListToken != null, u.AniListUserName, u.Passkeys.Count);
+        new(u.Id, u.Username, u.AniListToken != null, u.AniListUserName, u.Passkeys.Count,
+            u.Avatar, u.PasscodeHash != null, Tracking.TrackerService.ActiveId(u), u.MalAccessToken != null, u.MalUserName);
 
     public static void MapAuth(this IEndpointRouteBuilder app)
     {
@@ -57,13 +60,28 @@ public static class AuthEndpoints
         g.MapPost("/login", async (PasswordLoginRequest req, AppDb db, TokenService tokens) =>
         {
             var user = await db.Users.Include(u => u.Passkeys).FirstOrDefaultAsync(u => u.Username == req.Username);
-            if (user is null || Hasher.VerifyHashedPassword(user, user.PasswordHash, req.Password) == PasswordVerificationResult.Failed)
+            if (user is null || user.PasswordHash == "" || Hasher.VerifyHashedPassword(user, user.PasswordHash, req.Password) == PasswordVerificationResult.Failed)
             {
                 await Task.Delay(Random.Shared.Next(300, 700)); // slow down guessing
                 return Results.Unauthorized();
             }
             return Results.Ok(new AuthResponse(tokens.CreateAccessToken(user), user.ToDto()));
         }).RequireRateLimiting("auth");
+
+        // Set or change the password of the signed-in profile (profiles created from the app start without one).
+        g.MapPut("/password", async (PasswordChange req, HttpContext ctx, AppDb db) =>
+        {
+            var user = await db.Users.FirstAsync(u => u.Id == ctx.User.UserId());
+            if (req.NewPassword.Length < 10) return Results.BadRequest(new { error = "Password min 10 caratteri." });
+            if (user.PasswordHash != "" && Hasher.VerifyHashedPassword(user, user.PasswordHash, req.Current ?? "") == PasswordVerificationResult.Failed)
+            {
+                await Task.Delay(Random.Shared.Next(300, 700));
+                return Results.Unauthorized();
+            }
+            user.PasswordHash = Hasher.HashPassword(user, req.NewPassword);
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        }).RequireAuthorization().RequireRateLimiting("auth");
 
         g.MapGet("/me", async (HttpContext ctx, AppDb db) =>
         {

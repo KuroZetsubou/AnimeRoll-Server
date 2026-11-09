@@ -64,7 +64,7 @@ public static class SubtitleRefresh
                        ?? throw new InvalidOperationException($"Fonte sconosciuta: {parts[1]}");
         var ep = await db.Episodes.FindAsync([episodeId], ct) ?? throw new InvalidOperationException("Episodio non trovato.");
         var mp4 = Path.Combine(options.MediaPath, ep.FilePath);
-        if (!File.Exists(mp4)) throw new InvalidOperationException("Il file dell'episodio non esiste più sul NAS.");
+        if (!File.Exists(mp4)) throw new InvalidOperationException("Il file dell'episodio non esiste più sul server.");
 
         var fetched = await provider.FetchSubtitlesAsync(parts[2], workDir, ct);
         var root = Path.GetFullPath(workDir) + Path.DirectorySeparatorChar;

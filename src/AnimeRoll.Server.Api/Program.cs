@@ -7,6 +7,7 @@ using AnimeRoll.Server.Api.Library;
 using AnimeRoll.Server.Api.Options;
 using AnimeRoll.Server.Api.Plugins;
 using AnimeRoll.Server.Api.Providers;
+using AnimeRoll.Server.Api.Tracking;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
@@ -75,6 +76,8 @@ builder.Services.AddFido2(o =>
 builder.Services.AddSingleton<TokenService>();
 
 builder.Services.AddHttpClient<AniListClient>();
+builder.Services.AddHttpClient<AnimeRoll.Server.Api.Tracking.MalClient>();
+builder.Services.AddScoped<AnimeRoll.Server.Api.Tracking.TrackerService>();
 builder.Services.AddHttpClient<QBittorrentClient>();
 builder.Services.AddHttpClient("plugins", c => { c.Timeout = Timeout.InfiniteTimeSpan; c.DefaultRequestHeaders.UserAgent.ParseAdd("AnimeRoll-Plugin/1.0"); });
 builder.Services.AddSingleton<TelegramService>();
@@ -129,6 +132,9 @@ app.MapGet("/.well-known/assetlinks.json", (IOptions<AnimeRollOptions> o) => Res
 
 app.MapAuth();
 app.MapAniList();
+app.MapTracker();
+app.MapMalCallback();
+app.MapProfiles();
 app.MapLibrary();
 app.MapMedia();
 app.MapSourcesAndDownloads();
