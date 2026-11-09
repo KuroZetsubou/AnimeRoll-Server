@@ -1,6 +1,7 @@
 # Push to main  -> Docker image ghcr.io/<owner>/animeroll-server:edge + "nightly" pre-release on GitHub
 # Tag vX.Y.Z    -> Docker image :X.Y.Z, :X.Y and :latest + release "vX.Y.Z" (a tag like v1.2.0-beta.1 is a pre-release)
 # The web client is taken from the AnimeRoll-Web repository: same tag when it exists, otherwise main.
+# While AnimeRoll-Web is private, add a read-only deploy key of it as the WEB_DEPLOY_KEY secret here.
 name: Release
 
 on:
@@ -37,8 +38,16 @@ jobs:
           fi
 
       - name: Web client source
+        env:
+          # Only needed while AnimeRoll-Web is private: a read-only deploy key of that repository.
+          WEB_DEPLOY_KEY: ${{ secrets.WEB_DEPLOY_KEY }}
         run: |
           web="https://github.com/${GITHUB_REPOSITORY_OWNER}/AnimeRoll-Web.git"
+          if [[ -n "$WEB_DEPLOY_KEY" ]]; then
+            key="$RUNNER_TEMP/web_key"; printf '%s\n' "$WEB_DEPLOY_KEY" > "$key"; chmod 600 "$key"
+            export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+            web="git@github.com:${GITHUB_REPOSITORY_OWNER}/AnimeRoll-Web.git"
+          fi
           ref="${{ steps.v.outputs.tag }}"
           if [[ "$ref" == nightly ]] || ! git clone -q --depth 1 --branch "$ref" "$web" "$RUNNER_TEMP/web"; then
             git clone -q --depth 1 "$web" "$RUNNER_TEMP/web"
