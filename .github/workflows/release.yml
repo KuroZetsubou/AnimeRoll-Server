@@ -1,0 +1,93 @@
+# Push to main  -> Docker image ghcr.io/<owner>/animeroll-server:edge + "nightly" pre-release on GitHub
+# Tag vX.Y.Z    -> Docker image :X.Y.Z, :X.Y and :latest + release "vX.Y.Z" (a tag like v1.2.0-beta.1 is a pre-release)
+# The web client is taken from the AnimeRoll-Web repository: same tag when it exists, otherwise main.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Version
+        id: v
+        run: |
+          owner=$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+          echo "image=ghcr.io/${owner}/animeroll-server" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=nightly" >> "$GITHUB_OUTPUT"
+            echo "version=nightly-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Web client source
+        run: |
+          web="https://github.com/${GITHUB_REPOSITORY_OWNER}/AnimeRoll-Web.git"
+          ref="${{ steps.v.outputs.tag }}"
+          if [[ "$ref" == nightly ]] || ! git clone -q --depth 1 --branch "$ref" "$web" "$RUNNER_TEMP/web"; then
+            git clone -q --depth 1 "$web" "$RUNNER_TEMP/web"
+          fi
+          echo "Web client at $(git -C "$RUNNER_TEMP/web" rev-parse --short HEAD)"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.v.outputs.image }}
+          tags: |
+            type=edge,branch=main
+            type=sha
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-contexts: web-src=${{ runner.temp }}/web
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+          IMAGE: ${{ steps.v.outputs.image }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          if [[ "$TAG" == nightly ]]; then pull="$IMAGE:edge"; else pull="$IMAGE:$VERSION"; fi
+          printf 'Docker image:\n\n```\ndocker pull %s\n```\n' "$pull" > notes.md
+          if [[ "$TAG" == nightly ]]; then
+            gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+            printf '\nAutomatic build of `main` at %s. Not a stable release.\n' "${GITHUB_SHA::7}" >> notes.md
+            gh release create nightly --target "$GITHUB_SHA" --prerelease --title "Nightly" --notes-file notes.md
+          elif ! gh release view "$TAG" >/dev/null 2>&1; then
+            pre=(); [[ "$VERSION" == *-* ]] && pre=(--prerelease)
+            gh release create "$TAG" --verify-tag --generate-notes --notes-file notes.md --title "AnimeRoll Server $TAG" "${pre[@]}"
+          fi
